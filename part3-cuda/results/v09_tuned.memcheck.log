@@ -1,0 +1,3 @@
+========= COMPUTE-SANITIZER
+{"version":9,"m":4096,"n":4096,"k":192,"correct":true,"checked":16777216,"max_abs":0.00781440735,"median_ms":0.138737589,"p10_ms":0.138524801,"p90_ms":0.139025599,"tflops":46.4362325,"cublas_ms":0.104879998,"cublasLt_ms":0.100809596,"speedup_vs_lt":0.726620674,"lt_candidates":8,"lt_choice":3,"cublas_version":130100,"cache_policy":"warm_replay","gpu":"NVIDIA B300 SXM6 AC","sms":148}
+========= ERROR SUMMARY: 0 errors

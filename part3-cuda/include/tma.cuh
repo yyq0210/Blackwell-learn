@@ -1,0 +1,95 @@
+#pragma once
+#include "basic.cuh"
+namespace study {
+using LD=decltype(group<0,2>(tile_to_shape(UMMA::Layout_K_SW128_Atom<H>{},Shape<_128,_64>{})));
+template<int Stages>struct TmaStorage{
+ alignas(128) ArrayEngine<H,cosize_v<LA>> a[Stages],b[Stages];
+ alignas(128) ArrayEngine<H,cosize_v<LD>> d;
+ alignas(16) uint64_t full[Stages],done;
+ alignas(16) uint32_t tmem;
+};
+template<int V,int S,class TA,class TB,class TD,class CA,class CB,class CD>
+__global__ void tma_kernel(TA a,TB b,TD d,CUTE_GRID_CONSTANT CA const tma_a,CUTE_GRID_CONSTANT CB const tma_b,CUTE_GRID_CONSTANT CD const tma_d,int tiles_m,int tiles_n){
+ extern __shared__ char buf[];auto&s=*reinterpret_cast<TmaStorage<S>*>(buf);
+ Mma mma;TMEM::Allocator1Sm alloc;
+ bool warp0=threadIdx.x/32==0, elected=elect_one_sync();
+ if(warp0)alloc.allocate(128,&s.tmem);
+ if(threadIdx.x==0){for(int i=0;i<S;++i)initialize_barrier(s.full[i],1);initialize_barrier(s.done,1);}
+ __syncthreads();
+ int first=blockIdx.x;int step=V>=6?gridDim.x:tiles_m*tiles_n;
+ int done_phase=0;int tile_round=0;
+ for(int ti=first;ti<tiles_m*tiles_n;ti+=step){
+  // Group-M raster: adjacent tiles reuse B and a bounded M group reuses A in L2.
+  int bm=ti%tiles_m,bn=ti/tiles_m;
+  if constexpr(V>=6)grouped_tile(ti,tiles_m,tiles_n,bm,bn);
+  auto coord=make_coord(bm,bn,_);auto cta=mma.get_slice(_0{});
+  auto ga=local_tile(a,Tile{},coord,Step<_1,X,_1>{});auto gb=local_tile(b,Tile{},coord,Step<X,_1,_1>{});
+  auto gd=local_tile(d,Tile{},coord,Step<_1,_1,X>{});
+  auto pa=cta.partition_A(ga);auto pb=cta.partition_B(gb);auto pd=cta.partition_C(gd);
+  auto acc=cta.make_fragment_C(pd);acc.data()=s.tmem;
+  int nk=size<3>(pa);mma.accumulate_=UMMA::ScaleOut::Zero;
+  // v4: one buffer and immediate wait. v5: prefetch the next tile to another buffer.
+  if(warp0&&elected){
+   auto sa=make_tensor(make_smem_ptr(s.a[0].begin()),LA{});auto sb=make_tensor(make_smem_ptr(s.b[0].begin()),LA{});
+   auto [ag,as]=tma_partition(tma_a,_0{},Layout<_1>{},group_modes<0,3>(sa),group_modes<0,3>(pa));
+   auto [bg,bs]=tma_partition(tma_b,_0{},Layout<_1>{},group_modes<0,3>(sb),group_modes<0,3>(pb));
+   set_barrier_transaction_bytes(s.full[0],32768);copy(tma_a.with(s.full[0]),ag(_,0),as);copy(tma_b.with(s.full[0]),bg(_,0),bs);
+  }
+  for(int kt=0;kt<nk;++kt){
+   int stage=kt%S;auto sa=make_tensor(make_smem_ptr(s.a[stage].begin()),LA{});auto sb=make_tensor(make_smem_ptr(s.b[stage].begin()),LA{});
+   wait_barrier(s.full[stage],(tile_round*((nk+S-1-stage)/S)+kt/S)&1);
+   if constexpr(S==2){
+    if(kt+1<nk&&warp0&&elected){
+     auto na=make_tensor(make_smem_ptr(s.a[(kt+1)%S].begin()),LA{});auto nb=make_tensor(make_smem_ptr(s.b[(kt+1)%S].begin()),LA{});
+     auto [ag,as]=tma_partition(tma_a,_0{},Layout<_1>{},group_modes<0,3>(na),group_modes<0,3>(pa));
+     auto [bg,bs]=tma_partition(tma_b,_0{},Layout<_1>{},group_modes<0,3>(nb),group_modes<0,3>(pb));
+     set_barrier_transaction_bytes(s.full[(kt+1)%S],32768);copy(tma_a.with(s.full[(kt+1)%S]),ag(_,kt+1),as);copy(tma_b.with(s.full[(kt+1)%S]),bg(_,kt+1),bs);
+    }
+   }
+   auto ra=cta.make_fragment_A(sa);auto rb=cta.make_fragment_B(sb);
+   if(warp0){
+    CUTE_UNROLL
+    for(int kb=0;kb<size<2>(ra);++kb){gemm(mma,ra(_,_,kb),rb(_,_,kb),acc);mma.accumulate_=UMMA::ScaleOut::One;}
+    cutlass::arch::umma_arrive(&s.done);
+   }
+   wait_barrier(s.done,done_phase);done_phase^=1;
+   if constexpr(S==1){
+    if(kt+1<nk&&warp0&&elected){
+     auto [ag,as]=tma_partition(tma_a,_0{},Layout<_1>{},group_modes<0,3>(sa),group_modes<0,3>(pa));
+     auto [bg,bs]=tma_partition(tma_b,_0{},Layout<_1>{},group_modes<0,3>(sb),group_modes<0,3>(pb));
+     set_barrier_transaction_bytes(s.full[0],32768);copy(tma_a.with(s.full[0]),ag(_,kt+1),as);copy(tma_b.with(s.full[0]),bg(_,kt+1),bs);
+    }
+   }
+  }
+  ++tile_round;
+  auto acc_epi=zipped_divide(acc,make_tile(Shape<_128,_64>{}));auto gd_epi=zipped_divide(pd,make_tile(Shape<_128,_64>{}));
+  auto sd=make_tensor(make_smem_ptr(s.d.begin()),LD{});
+  auto [dg,ds]=tma_partition(tma_d,sd,gd_epi);
+  auto cp=make_tmem_copy(SM100_TMEM_LOAD_32dp32b1x{},acc_epi(_,_0{}));auto th=cp.get_slice(threadIdx.x);
+  auto src=th.partition_S(acc_epi);auto dst=th.partition_D(sd);
+  auto rf=make_tensor<float>(shape(dst));auto rh=make_fragment_like(dst);
+  for(int ei=0;ei<size<2>(src);++ei){
+   copy(cp,src(_,_,ei),rf);
+   cutlass::arch::fence_view_async_tmem_load();
+   CUTE_UNROLL
+   for(int j=0;j<size(rh);++j)rh(j)=H(rf(j));
+   copy(rh,dst);tma_store_fence();__syncthreads();
+   if(warp0&&elected){copy(tma_d,ds,dg(_,ei));tma_store_arrive();tma_store_wait<0>();}
+   __syncthreads();
+  }
+ }
+ if(warp0){alloc.release_allocation_lock();alloc.free(s.tmem,128);}
+}
+template<int V,int S>void launch_tma(Problem p){
+ auto a=make_tensor(make_gmem_ptr(p.a),make_layout(make_shape(p.m,p.k),make_stride(p.k,_1{})));
+ auto b=make_tensor(make_gmem_ptr(p.b),make_layout(make_shape(p.n,p.k),make_stride(p.k,_1{})));
+ auto d=make_tensor(make_gmem_ptr(p.d),make_layout(make_shape(p.m,p.n),make_stride(p.n,_1{})));
+ auto ca=make_tma_atom(SM90_TMA_LOAD{},a,LA{},Shape<_128,_64>{});auto cb=make_tma_atom(SM90_TMA_LOAD{},b,LA{},Shape<_128,_64>{});
+ auto cd=make_tma_atom(SM90_TMA_STORE{},d,LD{},Shape<_128,_64>{});
+ auto ta=ca.get_tma_tensor(shape(a));auto tb=cb.get_tma_tensor(shape(b));auto td=cd.get_tma_tensor(shape(d));
+ auto fn=tma_kernel<V,S,decltype(ta),decltype(tb),decltype(td),decltype(ca),decltype(cb),decltype(cd)>;
+ static bool configured=false;if(!configured){CUDA_OK(cudaFuncSetAttribute(fn,cudaFuncAttributeMaxDynamicSharedMemorySize,sizeof(TmaStorage<S>)));configured=true;}
+ int tiles=(p.m/128)*(p.n/128);int grid=V>=6?std::min(tiles,p.sms):tiles;
+ fn<<<grid,128,sizeof(TmaStorage<S>)>>>(ta,tb,td,ca,cb,cd,p.m/128,p.n/128);
+}
+}

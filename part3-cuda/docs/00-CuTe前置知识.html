@@ -1,0 +1,129 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>CuTe前置知识</title><style>body{max-width:1050px;margin:30px auto;padding:20px;font:16px/1.8 system-ui;color:#0f172a}pre{background:#f1f5f9;padding:18px;overflow:auto}table{border-collapse:collapse}td,th{padding:10px;border:1px solid #ddd}a{color:#0369a1}</style><a href="index.html">← 目录</a><h1>从 CUDA / TIRx 到 CuTe C++：先把这些符号认清</h1>
+<p>CuTe C++不要求换一套GPU执行模型。thread、warp、CTA、cluster、SMEM、TMEM还是原来的硬件概念。新的是：用C++模板和layout代数，描述哪个CTA/线程操作哪些数据，并选择相应硬件指令。</p>
+<h2>1. Tensor首先是视图</h2>
+<pre><code class="language-cpp">auto layout = make_layout(make_shape(8,16), make_stride(16,_1{}));
+auto tensor = make_tensor(make_gmem_ptr(ptr), layout);
+</code></pre>
+<p><code>t(r,c)</code>的元素偏移为<code>16*r+c</code>。这两行没有分配8×16个数，也没有搬运数据；ptr必须已指向有效存储。shape告诉你逻辑范围，stride告诉你每个坐标增1时地址怎么走。</p>
+<p><code>_1{}</code>是编译期常量1；<code>Int&lt;128&gt;{}</code>是编译期常量128。普通<code>int m</code>是运行时值。静态layout让编译器提前计算分片与指令组合，运行时仍可以传入完整矩阵的M、N、K。</p>
+<p><code>decltype(expression)</code>只取得表达式的C++类型。<code>using LA = decltype(...)</code>是在命名一个布局类型，不是分配shared memory。</p>
+<h2>2. local_tile：从大矩阵选窗口</h2>
+<pre><code class="language-cpp">auto coord = make_coord(bm,bn,_);
+auto ga = local_tile(a,Shape&lt;_128,_128,_64&gt;{},coord,Step&lt;_1,X,_1&gt;{});
+</code></pre>
+<p>完整GEMM的三个轴是M、N、K，A只需要M/K，所以<code>Step&lt;_1,X,_1&gt;</code>保留M/K、忽略N。<code>_</code>表示K tile轴暂不固定。</p>
+<p>例如bm=2时，<code>ga</code>覆盖A的第256–383行，形状为<code>(128,64,K/64)</code>。<code>ga(m,k,kt)</code>对应<code>A[256+m,64*kt+k]</code>。B使用<code>Step&lt;X,_1,_1&gt;</code>，D使用<code>Step&lt;_1,_1,X&gt;</code>。</p>
+<h2>3. partition：换成指令需要的坐标</h2>
+<p>单CTA的128×128×16 MMA要求A的核心形状是128×16。BK64包含4个K16，因此：</p>
+<pre><code class="language-text">A tile形状：       (128,64)
+MMA分片形状：      ((128,16),1,4)
+逻辑坐标对应：      ((m,k%16),0,k/16)
+</code></pre>
+<p>中间的1表示M方向只需一次该MMA形状，最后的4表示沿K发4次。这个重排不改变元素个数，也不复制数据。</p>
+<p><code>mma.get_slice(peer)</code>在Blackwell里先选择CTA份额。它和<code>copy.get_slice(threadIdx.x)</code>不是同一层：后者才把复制工作分到线程。</p>
+<h2>4. 两种fragment不要混淆</h2>
+<p><code>make_fragment_A/B(smem_tensor)</code>在本项目的SMEM输入路径上得到descriptor fragment。它为Tensor Core描述SMEM地址、leading/stride offset和swizzle，不把矩阵搬进线程寄存器，也不需要Ampere风格的ldmatrix。</p>
+<p><code>make_tensor&lt;float&gt;(shape(dst))</code>则创建当前线程的FP32寄存器fragment。静态shape足够小的时候编译器通常放寄存器；过大可能spill，不能仅凭变量名保证全部在register。编译日志中的spill计数就是为此保留的。</p>
+<h2>5. SMEM layout与TMEM layout是不同地址空间</h2>
+<p><code>UMMA::Layout_K_SW128_Atom&lt;H&gt;</code>是K连续、128-byte swizzle的基本布局构件。<code>tile_to_mma_shape</code>把它铺成MMA分片需要的输入布局；<code>tile_to_shape</code>把它铺成写回子块。</p>
+<p>TMEM的lane/column是独立硬件坐标。CuTe可能把lane编码成高位stride（常见65536），column编码为低位。这不是说相邻矩阵行在普通内存里相隔65536个float！它是TMEM地址编码。可对照之前学习的<code>@TLane</code>、<code>@TCol</code>理解。</p>
+<p>128条lane、256列FP32结果占<code>128*256*4=128 KiB</code>。<code>tmem.allocate(256)</code>参数单位是TMEM columns。第9版两个消费者合计512列，每个CTA拥有自己的两段TMEM，不是让两个SM共享一块普通线性数组。</p>
+<h2>6. 描述、发射与完成：分成三件事</h2>
+<table>
+<thead>
+<tr>
+<th>代码</th>
+<th>含义</th>
+<th>是否已完成数据搬运/计算</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>make_tma_atom</code></td>
+<td>CPU编码descriptor</td>
+<td>没有发射</td>
+</tr>
+<tr>
+<td><code>tma_partition</code></td>
+<td>建立源/目标坐标视图</td>
+<td>没有发射</td>
+</tr>
+<tr>
+<td><code>copy(tma.with(bar),...)</code></td>
+<td>发起异步搬运</td>
+<td>未必完成</td>
+</tr>
+<tr>
+<td><code>wait_barrier(full,phase)</code></td>
+<td>确认输入到达</td>
+<td>对应本轮输入已完成</td>
+</tr>
+<tr>
+<td><code>gemm(mma,...)</code></td>
+<td>发起异步MMA</td>
+<td>未必完成</td>
+</tr>
+<tr>
+<td><code>umma_arrive(bar)</code> + wait</td>
+<td>提交并等待MMA完成通知</td>
+<td>对应之前提交的MMA完成</td>
+</tr>
+<tr>
+<td><code>copy(tmem_copy,...)</code> + <code>wait::ld</code></td>
+<td>读TMEM并等待</td>
+<td>可以使用寄存器结果</td>
+</tr>
+</tbody>
+</table>
+<p><code>.with(bar)</code>只是把完成通知目标附加到copy atom上，实际指令由copy调用发出。</p>
+<h2>7. barrier的slot、phase和计数</h2>
+<p>以4stage、2consumer为例：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:right">输入迭代i</th>
+<th style="text-align:right">stage=i%4</th>
+<th style="text-align:right">MMA等full phase</th>
+<th style="text-align:right">producer复用前等empty phase</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">0</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">首次使用，不等</td>
+</tr>
+<tr>
+<td style="text-align:right">1</td>
+<td style="text-align:right">1</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">首次使用，不等</td>
+</tr>
+<tr>
+<td style="text-align:right">3</td>
+<td style="text-align:right">3</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">首次使用，不等</td>
+</tr>
+<tr>
+<td style="text-align:right">4</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">1</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td style="text-align:right">8</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">1</td>
+</tr>
+</tbody>
+</table>
+<p>stage选择物理buffer；phase区分同一barrier的不同轮。empty的arrival count=2表示两位MMA消费者都读完；不是phase=2，也不是有2份B。</p>
+<p>每位消费者还有自己的<code>acc_full[c]</code>与<code>acc_empty[c]</code>。输入buffer与TMEM输出buffer是两个不同生命周期，必须分开保护。</p>
+<h2>8. 如何看生成的独立源码</h2>
+<p>每个<code>.cu</code>已经展开本版算法，不需要跟着三层项目头文件跳转。为了与开发模板保持对应，保留少量<code>if constexpr(2==1)</code>和<code>std::conditional_t&lt;...&gt;</code>。这些是编译期选择，未选分支不会变成运行时工作；不是每次kernel执行时再决定用单CTA还是双CTA。</p>
+<p>每版仍包含两个共享头文件：<code>common.cuh</code>提供参数/错误检查/分组调度，<code>runner_graph.cuh</code>提供测试入口。它们以及基准helper都有<a href="testing.html">独立逐行讲解</a>。</p>
+<p>现在可以进入<a href="v01_single_tile.html">第1版</a>，先走通一次真实数据路径。</p>
+</html>

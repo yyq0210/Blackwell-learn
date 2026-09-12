@@ -1,0 +1,177 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>性能实测与TIR对照</title><style>body{max-width:1250px;margin:30px auto;padding:20px;font:16px/1.8 system-ui;color:#0f172a}table{border-collapse:collapse;width:100%;font-size:14px}td,th{padding:9px;border-bottom:1px solid #cbd5e1;text-align:left}pre{padding:18px;background:#f1f5f9;overflow:auto}a{color:#0369a1}</style><a href="index.html">← 版本目录</a><h1>本机实测结果与“TIR为什么能持平cuBLAS”</h1>
+<p>作者最终版能持平，靠的是完整的硬件数据路径、计算/搬运重叠和输入复用；TIR是表达这些机制的语言，不是一个比CUDA C++更快的执行引擎。CUDA C++ / CuTe也能生成tcgen05、TMA和TMEM指令，关键是最终指令、布局、流水线和测试条件是否对应。</p>
+<h2>原书的结论适用什么条件</h2>
+<p>原书记录的是NVIDIA B200、4096³、FP16、锁定时钟、每版计时1000次；第9版与cuBLAS同为94μs。94μs对应约1.46 PFLOP/s，不能直接当作所有Blackwell卡、所有cuBLAS版本的统一标准。原书表中第1步70ms来自将串行思路扩展到完整矩阵的baseline，不是运行128×128×64的教学kernel。</p>
+<p>当前测试是B300、驱动580.105.08、CUDA13.0.2组件、cuBLAS13.1.0（API版本130100），没有锁时钟。使用FP16 A/B/D、FP32累加，warm replay和CUDA Graph。尚未在同一机器上重新运行作者的TIRx二进制，因此没有足够证据把剩余差距归因于语言或编译器。</p>
+<h2>本机4096³结果</h2>
+<p>v1/v2只计算一个输出tile，单列形状，不参与完整4096³演进比较。所有数值均通过完整FP32参考检查。每行cuBLAS/cuBLASLt来自同次进程；不同进程之间的少量波动不应当作优化效果。</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>M×N×K</th>
+<th style="text-align:right">手写 μs</th>
+<th style="text-align:right">TFLOP/s</th>
+<th style="text-align:right">cuBLAS μs</th>
+<th style="text-align:right">cuBLASLt μs</th>
+<th style="text-align:right">相对当轮更快库基线</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="v01_single_tile.html">v01_single_tile</a></td>
+<td>128×128×64</td>
+<td style="text-align:right">26.44</td>
+<td style="text-align:right">0.1</td>
+<td style="text-align:right">1.54</td>
+<td style="text-align:right">1.56</td>
+<td style="text-align:right">0.058×</td>
+</tr>
+<tr>
+<td><a href="v02_k_loop.html">v02_k_loop</a></td>
+<td>128×128×4096</td>
+<td style="text-align:right">1289.44</td>
+<td style="text-align:right">0.1</td>
+<td style="text-align:right">5.58</td>
+<td style="text-align:right">4.38</td>
+<td style="text-align:right">0.003×</td>
+</tr>
+<tr>
+<td><a href="v03_multi_cta.html">v03_multi_cta</a></td>
+<td>4096×4096×4096</td>
+<td style="text-align:right">15276.99</td>
+<td style="text-align:right">9.0</td>
+<td style="text-align:right">83.02</td>
+<td style="text-align:right">100.83</td>
+<td style="text-align:right">0.005×</td>
+</tr>
+<tr>
+<td><a href="v04_tma.html">v04_tma</a></td>
+<td>4096×4096×4096</td>
+<td style="text-align:right">493.04</td>
+<td style="text-align:right">278.8</td>
+<td style="text-align:right">82.51</td>
+<td style="text-align:right">90.37</td>
+<td style="text-align:right">0.167×</td>
+</tr>
+<tr>
+<td><a href="v05_double_buffer.html">v05_double_buffer</a></td>
+<td>4096×4096×4096</td>
+<td style="text-align:right">392.92</td>
+<td style="text-align:right">349.8</td>
+<td style="text-align:right">82.47</td>
+<td style="text-align:right">107.26</td>
+<td style="text-align:right">0.210×</td>
+</tr>
+<tr>
+<td><a href="v06_persistent.html">v06_persistent</a></td>
+<td>4096×4096×4096</td>
+<td style="text-align:right">330.46</td>
+<td style="text-align:right">415.9</td>
+<td style="text-align:right">82.58</td>
+<td style="text-align:right">102.94</td>
+<td style="text-align:right">0.250×</td>
+</tr>
+<tr>
+<td><a href="v07_warp_specialized.html">v07_warp_specialized</a></td>
+<td>4096×4096×4096</td>
+<td style="text-align:right">149.35</td>
+<td style="text-align:right">920.3</td>
+<td style="text-align:right">96.32</td>
+<td style="text-align:right">96.53</td>
+<td style="text-align:right">0.645×</td>
+</tr>
+<tr>
+<td><a href="v08_two_cta.html">v08_two_cta</a></td>
+<td>4096×4096×4096</td>
+<td style="text-align:right">141.77</td>
+<td style="text-align:right">969.5</td>
+<td style="text-align:right">86.21</td>
+<td style="text-align:right">110.64</td>
+<td style="text-align:right">0.608×</td>
+</tr>
+<tr>
+<td><a href="v09_multi_consumer.html">v09_multi_consumer</a></td>
+<td>4096×4096×4096</td>
+<td style="text-align:right">121.66</td>
+<td style="text-align:right">1129.7</td>
+<td style="text-align:right">86.70</td>
+<td style="text-align:right">91.28</td>
+<td style="text-align:right">0.713×</td>
+</tr>
+<tr>
+<td><a href="v09_tuned.html">v09_tuned</a></td>
+<td>4096×4096×4096</td>
+<td style="text-align:right">103.98</td>
+<td style="text-align:right">1321.8</td>
+<td style="text-align:right">92.96</td>
+<td style="text-align:right">100.39</td>
+<td style="text-align:right">0.894×</td>
+</tr>
+</tbody>
+</table>
+<p><strong>结论：4096³尚未beat cuBLAS。</strong> 宽TMEM load改善了最后一版，但不能用略快于某轮cuBLASLt的结果，忽略更快的普通cuBLAS。</p>
+<h2>8192³重复实验</h2>
+<table>
+<thead>
+<tr>
+<th>轮次</th>
+<th style="text-align:right">手写 μs</th>
+<th style="text-align:right">cuBLAS μs</th>
+<th style="text-align:right">cuBLASLt μs</th>
+<th style="text-align:right">相对更快库基线</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td style="text-align:right">835.31</td>
+<td style="text-align:right">865.65</td>
+<td style="text-align:right">825.89</td>
+<td style="text-align:right">0.989×</td>
+</tr>
+<tr>
+<td>2</td>
+<td style="text-align:right">833.40</td>
+<td style="text-align:right">863.80</td>
+<td style="text-align:right">859.42</td>
+<td style="text-align:right">1.031×</td>
+</tr>
+<tr>
+<td>3</td>
+<td style="text-align:right">833.99</td>
+<td style="text-align:right">870.10</td>
+<td style="text-align:right">828.35</td>
+<td style="text-align:right">0.993×</td>
+</tr>
+</tbody>
+</table>
+<p>三轮都比普通cuBLAS略快，约3%–4%；相对cuBLASLt则接近1×且有胜有负。加上未锁时钟、单轮分位波动，不宣称稳定超过最强库基线。8192输入工作集很大，“warm replay”表示相同地址重复执行，不表示所有数据都在L2。</p>
+<h2>移植过程中发现了哪些真实差异</h2>
+<ul>
+<li>最初把两个accumulator交给一个MMA issue warp轮流处理，没有保留作者的两个独立consumer。已修正为两个独立issue warp，并将输入回收barrier计数改成2。这项修正保证机制对应，但单独修改没有带来显著提速，不能说它解释了全部差距。</li>
+<li>已补齐作者M方向8行分组的持久化任务编号；consumer和producer都使用同一映射。原先单纯M-major编号在更大网格上改变了cache复用距离。</li>
+<li>TMEM窄load和宽load是不同机器指令。最终调优版使用x32，减少epilogue指令数。反汇编可看到<code>LDTM.x32</code>、<code>UTCHMMA.2CTA</code>、<code>UTMALDG.2D.2CTA</code>，说明实际执行的确是Blackwell数据路径。</li>
+<li>各版本的stage数量与epilogue子块大小明确写在源码和文档中；本项目v8选6个输入stages和64列写回块，与书中示例参数不完全相同。因此版本演进用于教学，不应把某次性能变化视为严格“只改一个变量”的消融实验。</li>
+<li>单独加入CUTLASS collective builder诊断基线，也在约100μs量级，未自动超过当轮cuBLAS。换成更高层C++接口不等于免费获得最优shape配置。</li>
+</ul>
+<p>因此可以说：书展示了这组优化足以在其B200测试条件下达到cuBLAS；本项目已经跑通同样的核心机制，但本机4096³实测尚未达到更快的cuBLAS配置。进一步解释差距，需要同机同条件的TIRx生成代码和指令/性能计数器对照，不能凭两张不同环境的时间表下结论。</p>
+<h2>正确性与检查覆盖</h2>
+<ul>
+<li>九个阶段和第9版调优版均已编译运行；前三版没有提前使用TMA，WS/双CTA/多消费者按顺序引入。</li>
+<li>主测试逐元素对照cuBLAS FP32参考。4096²输出检查16,777,216个元素；8192²检查67,108,864个元素。容差与CPU参考方法见<a href="testing.html">共享测试讲解</a>。</li>
+<li>11组附加case覆盖不同seed、K=64/192、非方形、持久化跨tile、stage回绕和最小双CTA输出。包括K/64=3的奇数情形，避免phase只在偶数循环上成立。</li>
+<li>最终调优kernel的memcheck和synccheck报告0 errors。初次混合库/Graph的racecheck触发工具内部异常；使用<code>STUDY_SANITIZER_ONLY=1</code>隔离手写kernel后，racecheck报告0 hazards。保留两份日志，不把工具异常当作一次成功检查。</li>
+<li>Sanitizer是对指定case的检查，不是所有shape、所有数据的形式化证明。Sanitizer日志中的计时受插桩影响，不能进入性能比较表。</li>
+<li>交互页脚本通过V8加轻量DOM模型检查：10页的初始化、源码行点击、搜索、K推进、consumer切换及tile边界映射。静态SVG也作为独立文件提供；该检查不等于真实浏览器截图对比。</li>
+</ul>
+<h2>复现</h2>
+<pre><code class="language-bash">cd /home/hadoop-scale-llm/yyq/blackwell-study/part3-cuda
+./scripts/validate_all.sh
+./scripts/edge_cases.sh
+STUDY_SANITIZER_ONLY=1 ../../.toolchains/cuda-13.0/compute-sanitizer/compute-sanitizer \
+  --tool racecheck --error-exitcode 99 ./build/v09_tuned 1024 512 192
+</code></pre>
+<p>每个命令行进程只处理一个shape/一组指针。当前实现不支持任意尾部尺寸、任意stride或不同的融合epilogue，也不包含端到端数据分配/搬运耗时。</p>
+<p>原书：<a href="https://github.com/mlc-ai/modern-gpu-programming-for-mlsys/blob/ebccca2e5675966f68fb3d4880d4448194bd638d/zh/chapter_gemm_advanced/index.md#%E5%AE%8C%E6%95%B4%E4%BC%98%E5%8C%96%E7%BB%93%E6%9E%9C">最终优化结果</a>。CuTe C++ API参考：<a href="https://github.com/NVIDIA/cutlass/tree/v4.6.0/examples/cute/tutorial/blackwell">NVIDIA官方Blackwell tutorials</a>。</p>
+</html>

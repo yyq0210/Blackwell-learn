@@ -1,0 +1,11 @@
+EDGE v01_single_tile 128 128 64
+EDGE v02_k_loop 128 128 192
+EDGE v03_multi_cta 256 384 192
+EDGE v04_tma 256 384 192
+EDGE v05_double_buffer 256 384 192
+EDGE v06_persistent 2048 2048 192
+EDGE v07_warp_specialized 2048 2048 192
+EDGE v08_two_cta 4096 2048 192
+EDGE v09_multi_consumer 8192 4096 192
+EDGE v09_tuned 8192 4096 192
+EDGE v09_tuned 512 256 64

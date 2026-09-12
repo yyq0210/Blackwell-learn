@@ -1,0 +1,6 @@
+========= COMPUTE-SANITIZER
+========= Internal Sanitizer Error: The Sanitizer failed to handle a hardware exception.
+========= 
+include/benchmark.cuh:11 cudaDeviceSynchronize(): an illegal memory access was encountered
+========= Target application returned an error
+========= RACECHECK SUMMARY: 1 hazard displayed (1 error, 0 warnings)

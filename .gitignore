@@ -1,0 +1,7 @@
+# Local build products and Python caches
+part3-cuda/build/
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*

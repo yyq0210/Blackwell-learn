@@ -1,0 +1,6 @@
+ptxas info    : 1749 bytes gmem
+ptxas info    : Compiling entry function '_ZN5study5basicIN4cute6TensorINS1_10ViewEngineINS1_8gmem_ptrIPN7cutlass6half_tEEEEENS1_6LayoutINS1_5tupleIJiiEEENSB_IJiNS1_1CILi1EEEEEEEEEESH_SH_EEvT_T0_T1_' for 'sm_103a'
+ptxas info    : Function properties for _ZN5study5basicIN4cute6TensorINS1_10ViewEngineINS1_8gmem_ptrIPN7cutlass6half_tEEEEENS1_6LayoutINS1_5tupleIJiiEEENSB_IJiNS1_1CILi1EEEEEEEEEESH_SH_EEvT_T0_T1_
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 148 registers, used 1 barriers
+ptxas info    : Compile time = 194.779 ms

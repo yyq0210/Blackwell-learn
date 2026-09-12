@@ -1,0 +1,36 @@
+/home/hadoop-scale-llm/yyq/cutlass/include/cutlass/gemm/kernel/sm100_static_tile_scheduler.hpp(53): warning #20012-D: __device__ annotation is ignored on a non-virtual function("StaticPersistentTileScheduler100") that is explicitly defaulted on its first declaration
+    __inline__ __attribute__((always_inline)) __attribute__((device)) __attribute__((host))
+                                                             ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+/home/hadoop-scale-llm/yyq/cutlass/include/cutlass/gemm/kernel/sm100_static_tile_scheduler.hpp(53): warning #20012-D: __host__ annotation is ignored on a non-virtual function("StaticPersistentTileScheduler100") that is explicitly defaulted on its first declaration
+    __inline__ __attribute__((always_inline)) __attribute__((device)) __attribute__((host))
+                                                                                     ^
+
+/home/hadoop-scale-llm/yyq/cutlass/include/cutlass/gemm/kernel/sm100_static_tile_scheduler.hpp(53): warning #20012-D: __device__ annotation is ignored on a non-virtual function("StaticPersistentTileScheduler100") that is explicitly defaulted on its first declaration
+    __inline__ __attribute__((always_inline)) __attribute__((device)) __attribute__((host))
+                                                             ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+/home/hadoop-scale-llm/yyq/cutlass/include/cutlass/gemm/kernel/sm100_static_tile_scheduler.hpp(53): warning #20012-D: __host__ annotation is ignored on a non-virtual function("StaticPersistentTileScheduler100") that is explicitly defaulted on its first declaration
+    __inline__ __attribute__((always_inline)) __attribute__((device)) __attribute__((host))
+                                                                                     ^
+
+/home/hadoop-scale-llm/yyq/cutlass/include/cutlass/gemm/kernel/sm100_static_tile_scheduler.hpp(53): warning #20012-D: __device__ annotation is ignored on a non-virtual function("StaticPersistentTileScheduler100") that is explicitly defaulted on its first declaration
+    __inline__ __attribute__((always_inline)) __attribute__((device)) __attribute__((host))
+                                                             ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+/home/hadoop-scale-llm/yyq/cutlass/include/cutlass/gemm/kernel/sm100_static_tile_scheduler.hpp(53): warning #20012-D: __host__ annotation is ignored on a non-virtual function("StaticPersistentTileScheduler100") that is explicitly defaulted on its first declaration
+    __inline__ __attribute__((always_inline)) __attribute__((device)) __attribute__((host))
+                                                                                     ^
+
+ptxas info    : 1352 bytes gmem
+ptxas info    : Compiling entry function '_ZN7cutlass13device_kernelINS_4gemm6kernel13GemmUniversalIN4cute5tupleIJiiiiEEENS1_10collective13CollectiveMmaINS1_35MainloopSm100TmaUmmaWarpSpecializedILi5ELi2ELi2ENS5_IJNS4_1CILi2EEENSA_ILi1EEESC_EEENS_4arch5Sm100EEENS5_IJNSA_ILi256EEESH_NSA_ILi64EEEEEENS_6half_tENS5_IJlSC_lEEESK_SL_NS4_8TiledMMAINS4_8MMA_AtomIJNS4_26SM100_MMA_F16BF16_2x1SM_SSISK_SK_fLi256ELi256ELNS4_4UMMA5MajorE0ELSQ_0ELNSP_7ScaleInE0ELSR_0EEEEEENS4_6LayoutINS5_IJSC_SC_SC_EEENS5_IJNSA_ILi0EEESW_SW_EEEEENS5_IJNS4_10UnderscoreESZ_SZ_EEEEENS4_18SM100_TMA_2SM_LOADENS4_14ComposedLayoutINS4_7SwizzleILi3ELi4ELi3EEENS4_18smem_ptr_flag_bitsILi16EEENSU_INS5_IJNSA_ILi8EEESI_EEENS5_IJSI_SC_EEEEEEEvNS4_8identityES12_S1C_vS1D_EENS_8epilogue10collective18CollectiveEpilogueINS1F_23Sm100TmaWarpSpecializedILi4ELi2ELi64ELb1ELb0EEEJNS5_IJNSA_ILi128EEESH_SI_EEENS5_IJNSU_IS1K_SC_EENSU_ISI_SC_EEEEESK_SL_SK_SL_NS1F_6fusion15FusionCallbacksIS1J_NS1P_17LinearCombinationISK_fSK_fLNS_15FloatRoundStyleE2EEES1L_S1O_JEEENS4_5SM1004TMEM4LOAD26SM100_TMEM_LOAD_32dp32b64xENS4_13SM90_TMA_LOADES1C_NS4_39AutoVectorizingCopyWithAssumedAlignmentILi128EEENS4_14SM90_TMA_STOREES1C_S21_S21_EEEvvEEEEvNT_6ParamsE' for 'sm_103a'
+ptxas info    : Function properties for _ZN7cutlass13device_kernelINS_4gemm6kernel13GemmUniversalIN4cute5tupleIJiiiiEEENS1_10collective13CollectiveMmaINS1_35MainloopSm100TmaUmmaWarpSpecializedILi5ELi2ELi2ENS5_IJNS4_1CILi2EEENSA_ILi1EEESC_EEENS_4arch5Sm100EEENS5_IJNSA_ILi256EEESH_NSA_ILi64EEEEEENS_6half_tENS5_IJlSC_lEEESK_SL_NS4_8TiledMMAINS4_8MMA_AtomIJNS4_26SM100_MMA_F16BF16_2x1SM_SSISK_SK_fLi256ELi256ELNS4_4UMMA5MajorE0ELSQ_0ELNSP_7ScaleInE0ELSR_0EEEEEENS4_6LayoutINS5_IJSC_SC_SC_EEENS5_IJNSA_ILi0EEESW_SW_EEEEENS5_IJNS4_10UnderscoreESZ_SZ_EEEEENS4_18SM100_TMA_2SM_LOADENS4_14ComposedLayoutINS4_7SwizzleILi3ELi4ELi3EEENS4_18smem_ptr_flag_bitsILi16EEENSU_INS5_IJNSA_ILi8EEESI_EEENS5_IJSI_SC_EEEEEEEvNS4_8identityES12_S1C_vS1D_EENS_8epilogue10collective18CollectiveEpilogueINS1F_23Sm100TmaWarpSpecializedILi4ELi2ELi64ELb1ELb0EEEJNS5_IJNSA_ILi128EEESH_SI_EEENS5_IJNSU_IS1K_SC_EENSU_ISI_SC_EEEEESK_SL_SK_SL_NS1F_6fusion15FusionCallbacksIS1J_NS1P_17LinearCombinationISK_fSK_fLNS_15FloatRoundStyleE2EEES1L_S1O_JEEENS4_5SM1004TMEM4LOAD26SM100_TMEM_LOAD_32dp32b64xENS4_13SM90_TMA_LOADES1C_NS4_39AutoVectorizingCopyWithAssumedAlignmentILi128EEENS4_14SM90_TMA_STOREES1C_S21_S21_EEEvvEEEEvNT_6ParamsE
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 186 registers, used 7 barriers
+ptxas info    : Compile time = 300.739 ms

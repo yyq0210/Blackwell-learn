@@ -1,0 +1,78 @@
+#pragma once
+#include "common.cuh"
+// API reference: NVIDIA CUTLASS examples/cute/tutorial/blackwell/01_mma_sm100.cu.
+// The three book steps share storage and epilogue, but expose progressively more loops.
+namespace study {
+using namespace cute;
+using Mma = decltype(make_tiled_mma(SM100_MMA_F16BF16_SS<H,H,float,128,128,UMMA::Major::K,UMMA::Major::K>{}));
+using Tile = Shape<_128,_128,_64>;
+using ShapeA = decltype(partition_shape_A(Mma{}, Shape<_128,_64>{}));
+using LA = decltype(UMMA::tile_to_mma_shape(UMMA::Layout_K_SW128_Atom<H>{},ShapeA{}));
+struct BasicStorage {
+ alignas(128) ArrayEngine<H,cosize_v<LA>> a,b;
+ alignas(16) uint64_t mma_bar;
+ alignas(16) uint32_t tmem;
+};
+template<int Version,class TA,class TB,class TD>
+__global__ void basic(TA a,TB b,TD d){
+ extern __shared__ char buf[];
+ auto& s=*reinterpret_cast<BasicStorage*>(buf);
+ Mma mma;
+ int bm=Version>=3?blockIdx.x:0, bn=Version>=3?blockIdx.y:0;
+ auto coord=make_coord(bm,bn,_);
+ auto ga=local_tile(a,Tile{},coord,Step<_1,X,_1>{});
+ auto gb=local_tile(b,Tile{},coord,Step<X,_1,_1>{});
+ auto gd=local_tile(d,Tile{},coord,Step<_1,_1,X>{});
+ auto cta=mma.get_slice(_0{});
+ auto pa=cta.partition_A(ga),pb=cta.partition_B(gb);
+ auto pd=cta.partition_C(gd);
+ auto sa=make_tensor(make_smem_ptr(s.a.begin()),LA{});
+ auto sb=make_tensor(make_smem_ptr(s.b.begin()),LA{});
+ auto ra=cta.make_fragment_A(sa),rb=cta.make_fragment_B(sb);
+ auto acc=cta.make_fragment_C(pd);
+ TMEM::Allocator1Sm alloc;
+ bool warp0=threadIdx.x/32==0;
+ if(warp0) alloc.allocate(128,&s.tmem);
+ if(threadIdx.x==0)initialize_barrier(s.mma_bar,1);
+ __syncthreads();
+ acc.data()=s.tmem;
+ mma.accumulate_=UMMA::ScaleOut::Zero;
+ int nk=Version==1?1:size<3>(pa);
+ for(int kt=0;kt<nk;++kt){
+   cooperative_copy<128>(threadIdx.x,pa(_,_,_,kt),sa);
+   cooperative_copy<128>(threadIdx.x,pb(_,_,_,kt),sb);
+   // Ordinary SMEM stores must become visible to the asynchronous MMA proxy.
+   cutlass::arch::fence_view_async_shared();
+   __syncthreads();
+   if(warp0){
+     CUTE_UNROLL
+     for(int kb=0;kb<size<2>(ra);++kb){
+       gemm(mma,ra(_,_,kb),rb(_,_,kb),acc);
+       mma.accumulate_=UMMA::ScaleOut::One;
+     }
+     cutlass::arch::umma_arrive(&s.mma_bar);
+   }
+   wait_barrier(s.mma_bar,kt&1);
+ }
+ auto cp=make_tmem_copy(SM100_TMEM_LOAD_32dp32b1x{},acc);
+ auto th=cp.get_slice(threadIdx.x);
+ auto src=th.partition_S(acc); auto dst=th.partition_D(pd);
+ auto rf=make_tensor<float>(shape(dst));
+ auto rh=make_tensor<H>(shape(dst));
+ copy(cp,src,rf);
+ cutlass::arch::fence_view_async_tmem_load();
+ CUTE_UNROLL
+ for(int i=0;i<size(rh);++i)rh(i)=H(rf(i));
+ copy(rh,dst);
+ __syncthreads();
+ if(warp0){alloc.release_allocation_lock();alloc.free(s.tmem,128);}
+}
+template<int V> void launch_basic(Problem p){
+ auto a=make_tensor(make_gmem_ptr(p.a),make_layout(make_shape(p.m,p.k),make_stride(p.k,_1{})));
+ auto b=make_tensor(make_gmem_ptr(p.b),make_layout(make_shape(p.n,p.k),make_stride(p.k,_1{})));
+ auto d=make_tensor(make_gmem_ptr(p.d),make_layout(make_shape(p.m,p.n),make_stride(p.n,_1{})));
+ auto fn=basic<V,decltype(a),decltype(b),decltype(d)>;
+ static bool configured=false;if(!configured){CUDA_OK(cudaFuncSetAttribute(fn,cudaFuncAttributeMaxDynamicSharedMemorySize,sizeof(BasicStorage)));configured=true;}
+ fn<<<dim3(V>=3?p.m/128:1,V>=3?p.n/128:1),128,sizeof(BasicStorage)>>>(a,b,d);
+}
+}
