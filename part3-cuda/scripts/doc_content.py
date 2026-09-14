@@ -76,6 +76,10 @@ consumer0计算cluster tile的前256行，consumer1计算后256行；两者都�
 
 # Specific explanations for v01: avoid introducing later-version machinery.
 V01_NOTES = {
+ 50: '实际复制 A：128 个线程，默认 MaxVecBits=16。thread t 搬 A[2*r+t/64,t%64]，r=0..63；输入每个元素恰好由一个线程搬到 swizzled SMEM。',
+ 51: '实际复制 B：线程分工与 A 相同，将 A 的 m 轴替换为 B 的 n 轴。thread82 搬 B 的奇数行、K=18；这与输出写回分工不同。',
+ 67: '构造 warp 协作的 TMEM 源窗口；同一 warp 的线程源视图可重合。本版 src.shape=((32,1),128,1,1)，并非每线程接收 4096 个寄存器值。',
+
  17: '定义本 CTA 的 shared-memory 存储：只有 A、B 输入数组、MMA barrier 和 TMEM 基地址字段。本版没有输出 SMEM buffer。',
  27: '这是生成器留下的常量表达式：1>=3 为假，因此 bm=bn=0；本版只处理左上角唯一的输出 tile。',
  29: '从 GMEM A 选择 M=128、K=64 的窗口；Step 保留 M/K，忽略 N。ga 的 shape 为 (128,64,1)，最后一维是 K64 大块数。',

@@ -1,0 +1,19 @@
+thread 0 input coordinates: (0,0) (2,0) (4,0) (6,0) (8,0) (10,0) (12,0) (14,0) (16,0) (18,0) (20,0) (22,0) ... total=64
+thread 1 input coordinates: (0,1) (2,1) (4,1) (6,1) (8,1) (10,1) (12,1) (14,1) (16,1) (18,1) (20,1) (22,1) ... total=64
+thread 7 input coordinates: (0,7) (2,7) (4,7) (6,7) (8,7) (10,7) (12,7) (14,7) (16,7) (18,7) (20,7) (22,7) ... total=64
+thread 8 input coordinates: (0,8) (2,8) (4,8) (6,8) (8,8) (10,8) (12,8) (14,8) (16,8) (18,8) (20,8) (22,8) ... total=64
+thread 31 input coordinates: (0,31) (2,31) (4,31) (6,31) (8,31) (10,31) (12,31) (14,31) (16,31) (18,31) (20,31) (22,31) ... total=64
+thread 32 input coordinates: (0,32) (2,32) (4,32) (6,32) (8,32) (10,32) (12,32) (14,32) (16,32) (18,32) (20,32) (22,32) ... total=64
+thread 63 input coordinates: (0,63) (2,63) (4,63) (6,63) (8,63) (10,63) (12,63) (14,63) (16,63) (18,63) (20,63) (22,63) ... total=64
+thread 64 input coordinates: (1,0) (3,0) (5,0) (7,0) (9,0) (11,0) (13,0) (15,0) (17,0) (19,0) (21,0) (23,0) ... total=64
+thread 127 input coordinates: (1,63) (3,63) (5,63) (7,63) (9,63) (11,63) (13,63) (15,63) (17,63) (19,63) (21,63) (23,63) ... total=64
+A[3,18] loader=82; output D[3,5] writer=3
+Host execution of actual cooperative_copy<128>: failures=0
+Larger illustration: ga shape=(_128,_64,2); pa shape=((_128,_16),_1,_4,2)
+ga(3,18,1)=(131,82); pa((3,2),0,1,1)=(131,82); pb((5,2),0,1,1)=(261,82); pd((3,5),0,0)=(131,261)
+thread 0 partition_S shape=((_32,_1),_128,_1,_1) first=(0,0) index31=(31,0); partition_D shape=((_1,_1),_128,_1,_1) first=(0,0) last=(0,127)
+thread 1 partition_S shape=((_32,_1),_128,_1,_1) first=(0,0) index31=(31,0); partition_D shape=((_1,_1),_128,_1,_1) first=(1,0) last=(1,127)
+thread 31 partition_S shape=((_32,_1),_128,_1,_1) first=(0,0) index31=(31,0); partition_D shape=((_1,_1),_128,_1,_1) first=(31,0) last=(31,127)
+thread 32 partition_S shape=((_32,_1),_128,_1,_1) first=(32,0) index31=(63,0); partition_D shape=((_1,_1),_128,_1,_1) first=(32,0) last=(32,127)
+thread 37 partition_S shape=((_32,_1),_128,_1,_1) first=(32,0) index31=(63,0); partition_D shape=((_1,_1),_128,_1,_1) first=(37,0) last=(37,127)
+thread 127 partition_S shape=((_32,_1),_128,_1,_1) first=(96,0) index31=(127,0); partition_D shape=((_1,_1),_128,_1,_1) first=(127,0) last=(127,127)

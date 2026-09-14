@@ -2,7 +2,7 @@
 
 源码：[v01_single_tile.cu](../kernels/v01_single_tile.cu) · [交互逐行讲解](v01_single_tile.html)
 
-先读：[从一行点积读懂本版：详细图解](01-single-tile-walkthrough.md) · [交互计算图](01-single-tile-walkthrough.html#lab)
+先读：[从一行点积读懂本版：详细图解](01-single-tile-walkthrough.md) · [交互计算图](01-single-tile-walkthrough.html#lab) · [API 与线程编排图册](01-cute-api-atlas.md)
 
 先只算 D 的一个 128×128 方块，输入 A、B 都是 128×64。每个输出元素做64次乘加。整个 kernel 只有一个 CTA、128个线程。
 
@@ -78,8 +78,8 @@
 |47|`mma.accumulate_ = UMMA::ScaleOut::Zero;`|让后续第一条MMA忽略原TMEM值，相当于以0开始本输出tile的累加；无需另发清零kernel。|
 |48|`int nk = 1 == 1 ? 1 : size<3>(pa);`|计算K tile轮数：第1版固定1次，其余版本K/64次。K必须能被64整除。|
 |49|`for (int kt = 0; kt < nk; ++kt) {`|本版 nk=1，所以外层 kt 只有 0；内部 kb 才遍历四个 K16 切片。|
-|50|`cooperative_copy<128>(threadIdx.x, pa(_, _, _, kt), sa);`|128个线程合作执行普通global load与shared store；CuTe按布局推导分配和可用的向量宽度。这不是TMA。|
-|51|`cooperative_copy<128>(threadIdx.x, pb(_, _, _, kt), sb);`|128个线程合作执行普通global load与shared store；CuTe按布局推导分配和可用的向量宽度。这不是TMA。|
+|50|`cooperative_copy<128>(threadIdx.x, pa(_, _, _, kt), sa);`|实际复制 A：128 个线程，默认 MaxVecBits=16。thread t 搬 A[2*r+t/64,t%64]，r=0..63；输入每个元素恰好由一个线程搬到 swizzled SMEM。|
+|51|`cooperative_copy<128>(threadIdx.x, pb(_, _, _, kt), sb);`|实际复制 B：线程分工与 A 相同，将 A 的 m 轴替换为 B 的 n 轴。thread82 搬 B 的奇数行、K=18；这与输出写回分工不同。|
 |52|`// Ordinary SMEM stores must become visible to the asynchronous MMA proxy.`|说明性注释，不生成机器指令。对应的中文机制解释见本节开头和下面的实际语句。|
 |53|`cutlass::arch::fence_view_async_shared();`|使普通shared stores对异步MMA/TMA代理可见；它不替代线程之间的执行同步。|
 |54|`__syncthreads();`|整个CTA的执行同步。所有需要参与的线程都必须到达；它本身不会等待尚未提交到barrier的异步MMA/TMA。|
@@ -95,7 +95,7 @@
 |64|`}`|结束当前代码块或类型声明；作用域对应上方最近的函数、循环或条件分支。|
 |65|`auto cp = make_tmem_copy(SM100_TMEM_LOAD_32dp32b1x{}, acc);`|构造 TMEM load 配置。基础操作是每 warp 从 32 条 datapath 各取一个 FP32；CuTe 重复该操作覆盖整个 acc。|
 |66|`auto th = cp.get_slice(threadIdx.x);`|取得当前CUDA线程在TMEM copy中的份额。这里的slice参数才是线程号。|
-|67|`auto src = th.partition_S(acc);`|按copy的线程映射取源分片；TMEM copy中它指当前线程要读的TMEM位置，不是另分配一块TMEM。|
+|67|`auto src = th.partition_S(acc);`|构造 warp 协作的 TMEM 源窗口；同一 warp 的线程源视图可重合。本版 src.shape=((32,1),128,1,1)，并非每线程接收 4096 个寄存器值。|
 |68|`auto dst = th.partition_D(pd);`|得到本线程的 GMEM 输出份额。本版真实映射是 thread t 写 D[t,0:128]；这项行归属只适用于当前输出 copy。|
 |69|`auto rf = make_tensor<float>(shape(dst));`|按当前线程目标分片的形状创建FP32寄存器fragment，暂存从TMEM读出的结果。|
 |70|`auto rh = make_tensor<H>(shape(dst));`|创建对应形状的FP16寄存器fragment，承接转换后的结果。寄存器是线程私有的。|

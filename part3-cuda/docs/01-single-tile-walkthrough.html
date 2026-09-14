@@ -1,5 +1,6 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>从一行点积读懂第一个 CuTe kernel</title><style>body{max-width:1120px;margin:30px auto;padding:0 22px 70px;color:#172554;font:17px/1.85 system-ui,sans-serif}h1{font-size:32px}h2{margin-top:2.4em;border-bottom:2px solid #dbeafe;padding-bottom:8px}h3{margin-top:1.8em}a{color:#0369a1}pre{padding:20px;background:#f1f5f9;border-radius:9px;overflow:auto;font-size:14px;line-height:1.7}code{font-family:ui-monospace,monospace;font-size:.9em}table{border-collapse:collapse;display:block;overflow:auto;margin:18px 0}th,td{padding:10px 14px;border:1px solid #cbd5e1;vertical-align:top}th{background:#eff6ff}img,canvas{width:100%;height:auto}nav,.controls{display:flex;flex-wrap:wrap;gap:18px;align-items:center}input[type=number]{width:65px;padding:6px}button{padding:8px 16px;cursor:pointer;border:1px solid #93c5fd;background:#eff6ff;border-radius:6px}.controls{padding:20px;background:#f1f5f9}#lab{scroll-margin-top:20px}</style></head><body><nav><a href="index.html">课程目录</a><a href="v01_single_tile.html">原逐行代码页</a><a href="01-single-tile-walkthrough.md">Markdown 讲义</a><a href="#lab">直接试交互图</a></nav><h1>第一个 kernel：从一行点积读懂 CuTe 和 Blackwell</h1>
 <p>对应源码：<a href="../kernels/v01_single_tile.cu">v01_single_tile.cu</a>。本文的行号对应当前 104 行版本。建议先读本文，再用<a href="v01_single_tile.md">原逐行表</a>查单个语句。<a href="01-single-tile-walkthrough.html#lab">交互计算图</a>可以选择输出坐标、推进四次 MMA，并观察 shared memory 的地址重排。</p>
+<p>配套新增：<a href="01-cute-api-atlas.md">CuTe API 与线程编排图册</a> · <a href="01-cute-api-atlas.html#lab">交互选择 CTA / 线程</a>。</p>
 <p>这份代码难读，是因为同一个函数同时表达了数学分块、内存布局、硬件指令和异步同步。先把它们分开：<strong>数学决定要算哪些乘加，layout 决定数据放哪里，copy/gemm 才执行搬运和计算，barrier 决定何时可以使用结果。</strong></p>
 <h2>1. 先把 CuTe 遮住：它到底算什么？</h2>
 <p>本版只接受 M=128、N=128、K=64：</p>
@@ -332,8 +333,9 @@ auto acc = cta.make_fragment_C(pd);
 <pre><code class="language-cpp">cooperative_copy&lt;128&gt;(threadIdx.x, pa(_,_,_,0), sa);
 cooperative_copy&lt;128&gt;(threadIdx.x, pb(_,_,_,0), sb);
 </code></pre>
-<p>模板参数 <code>128</code> 是合作线程数；此 API 后续模板参数才涉及向量访问宽度等配置，不能把这个 128 读成“每次搬 128 字节”。</p>
+<p>模板参数 <code>128</code> 是合作线程数，不能读成“每次搬 128 字节”。CUTLASS v4.6.0 的这个重载默认 <code>MaxVecBits=16</code>（一个 FP16），即本版使用 <code>cooperative_copy&lt;128,16&gt;</code>。更大的向量化宽度需要显式选择，并满足对齐等条件。</p>
 <p>整个 CTA 对 A 搬 8192 个 FP16，对 B 再搬 8192 个 FP16。均匀分工的工作量是每线程每矩阵 64 个 FP16，但<strong>具体哪些元素归哪个线程由 CuTe 的 copy 算法和布局决定</strong>；不能因此断言“thread t 一定搬第 t 行”。后文的输出分工也不能直接套到这里。</p>
+<p>补充实际验证：本版 thread t 搬 <code>A/B[2*r+t/64, t%64]</code>，r=0..63。例如 thread82 搬奇数行的第 18 个 K 元素；输出时它却写 D 的第 82 行。详细 owner 图见<a href="01-cute-api-atlas.md">API 图册</a>。</p>
 <p>搬运路径为普通 GMEM load → 线程暂存 → SMEM store。源视图使用行主序地址，目标视图使用上面的 swizzle 地址。例如从 GMEM 元素 210 读取 <code>A[3,18]</code>，存到 SMEM 元素 202；B 也遵守自己的相同规则。</p>
 <h3>7.3 为什么 fence 和 syncthreads 两个都要？</h3>
 <p>Tensor Core 的异步访问与普通线程的 shared stores 不只涉及线程先后关系，还涉及不同访问代理间的可见性。</p>
@@ -495,6 +497,7 @@ for (int i=0; i&lt;size(rh); ++i)
     rh(i) = H(rf(i));                        // FP32 → FP16
 copy(rh, dst);                               // 真正 REG → GMEM
 </code></pre>
+<p>注意本版 <code>partition_S</code> 表示 warp 协作读取窗口：同一 warp 的线程可以持有重合的源视图，具体收到的寄存器数值再由 copy atom 映射到各 lane；<code>src</code> 的逻辑元素数不是每线程寄存器数。完整形状见<a href="01-cute-api-atlas.md">API 图册第 8 节</a>。</p>
 <p><code>src</code> 和 <code>dst</code> 以同一份 copy 映射分片，保证从 TMEM 拿到的逻辑 <code>(m,n)</code> 写回正确的 <code>D[m,n]</code>。它们的物理地址空间和 stride 可以不同。</p>
 <p><code>make_tensor&lt;float&gt;(shape(dst))</code> 在源码层面创建线程私有 fragment，CuTe 目标存储为寄存器；实际寄存器分配与是否溢出仍由编译结果决定，不能仅凭 <code>make_tensor</code> 就断言任何规模都不会 spill。</p>
 <p><code>fence_view_async_tmem_load()</code> 在此发出 <code>tcgen05.wait::ld</code>，等待本线程的 TMEM 读取完成，才能使用 <code>rf</code>。它与前面的等待 MMA 完成是两种不同的等待：一个等“算完”，一个等“把算好的结果读进寄存器”。</p>

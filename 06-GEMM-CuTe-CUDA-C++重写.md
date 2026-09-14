@@ -24,3 +24,10 @@
 ## 问：第 1 版代码看不懂，能否从计算过程开始详细讲？
 
 新增 [第一个 kernel：从一行点积读懂 CuTe 和 Blackwell](part3-cuda/docs/01-single-tile-walkthrough.md)，对应 [完整交互图文页](part3-cuda/docs/01-single-tile-walkthrough.html)。讲解包含小矩阵手算、四次 K16 累加、变量与实际存储的区别、shape/stride、SMEM swizzle 地址实例、descriptor、barrier 和每个线程的 TMEM 写回分工。原第 1 版逐行页也已链接该讲义，并修正混入后续版本概念的注释。
+
+
+## 问：画图解释 CuTe API 以及各种线程编排
+
+新增 [CuTe API 图册](part3-cuda/docs/01-cute-api-atlas.md) 和 [交互页面](part3-cuda/docs/01-cute-api-atlas.html)。五张 SVG 串起坐标选块、MMA 分层坐标、descriptor fragment、输入与输出的两种线程映射，以及 TMEM 协作源窗口到各 lane 的寄存器结果。
+
+本版实际输入搬运者 `t=64*(row%2)+k`，输出写回者 `t=m`；`cooperative_copy<128>` 默认向量宽度为 16 bits。`mma.get_slice(0)` 在本原语中取 CTA 份额，`cp.get_slice(t)` 取线程份额。TMEM `partition_S` 表示协作源窗口，不能直接把它的元素数当成该线程接收的寄存器数量。上述结论均已结合当前 CUTLASS 进行布局/普通复制诊断，并补回原讲义。

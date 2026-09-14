@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-14",
+  "input_copy": {
+    "implementation": "CUTLASS v4.6.0 cooperative_copy<128> executed on host",
+    "elements": 8192,
+    "elements_per_thread": 64,
+    "failures": 0
+  },
+  "tile_examples": {
+    "A": [
+      131,
+      82
+    ],
+    "B": [
+      261,
+      82
+    ],
+    "D": [
+      131,
+      261
+    ]
+  },
+  "tmem_source_view": "Warp-cooperative 32-row window; verified representative threads 0,1,31,32,37,127",
+  "interactive": {
+    "checks": 314,
+    "result": "PASS",
+    "method": "V8 with lightweight DOM/canvas mock, not a browser render"
+  },
+  "svg_xml": {
+    "files": 5,
+    "result": "PASS"
+  },
+  "kernel_source_changed": false
+}

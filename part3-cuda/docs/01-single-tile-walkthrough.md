@@ -2,6 +2,8 @@
 
 对应源码：[v01_single_tile.cu](../kernels/v01_single_tile.cu)。本文的行号对应当前 104 行版本。建议先读本文，再用[原逐行表](v01_single_tile.md)查单个语句。[交互计算图](01-single-tile-walkthrough.html#lab)可以选择输出坐标、推进四次 MMA，并观察 shared memory 的地址重排。
 
+配套新增：[CuTe API 与线程编排图册](01-cute-api-atlas.md) · [交互选择 CTA / 线程](01-cute-api-atlas.html#lab)。
+
 这份代码难读，是因为同一个函数同时表达了数学分块、内存布局、硬件指令和异步同步。先把它们分开：**数学决定要算哪些乘加，layout 决定数据放哪里，copy/gemm 才执行搬运和计算，barrier 决定何时可以使用结果。**
 
 ## 1. 先把 CuTe 遮住：它到底算什么？
@@ -331,9 +333,11 @@ cooperative_copy<128>(threadIdx.x, pa(_,_,_,0), sa);
 cooperative_copy<128>(threadIdx.x, pb(_,_,_,0), sb);
 ```
 
-模板参数 `128` 是合作线程数；此 API 后续模板参数才涉及向量访问宽度等配置，不能把这个 128 读成“每次搬 128 字节”。
+模板参数 `128` 是合作线程数，不能读成“每次搬 128 字节”。CUTLASS v4.6.0 的这个重载默认 `MaxVecBits=16`（一个 FP16），即本版使用 `cooperative_copy<128,16>`。更大的向量化宽度需要显式选择，并满足对齐等条件。
 
 整个 CTA 对 A 搬 8192 个 FP16，对 B 再搬 8192 个 FP16。均匀分工的工作量是每线程每矩阵 64 个 FP16，但**具体哪些元素归哪个线程由 CuTe 的 copy 算法和布局决定**；不能因此断言“thread t 一定搬第 t 行”。后文的输出分工也不能直接套到这里。
+
+补充实际验证：本版 thread t 搬 `A/B[2*r+t/64, t%64]`，r=0..63。例如 thread82 搬奇数行的第 18 个 K 元素；输出时它却写 D 的第 82 行。详细 owner 图见[API 图册](01-cute-api-atlas.md)。
 
 搬运路径为普通 GMEM load → 线程暂存 → SMEM store。源视图使用行主序地址，目标视图使用上面的 swizzle 地址。例如从 GMEM 元素 210 读取 `A[3,18]`，存到 SMEM 元素 202；B 也遵守自己的相同规则。
 
@@ -432,6 +436,8 @@ for (int i=0; i<size(rh); ++i)
     rh(i) = H(rf(i));                        // FP32 → FP16
 copy(rh, dst);                               // 真正 REG → GMEM
 ```
+
+注意本版 `partition_S` 表示 warp 协作读取窗口：同一 warp 的线程可以持有重合的源视图，具体收到的寄存器数值再由 copy atom 映射到各 lane；`src` 的逻辑元素数不是每线程寄存器数。完整形状见[API 图册第 8 节](01-cute-api-atlas.md)。
 
 `src` 和 `dst` 以同一份 copy 映射分片，保证从 TMEM 拿到的逻辑 `(m,n)` 写回正确的 `D[m,n]`。它们的物理地址空间和 stride 可以不同。
 
