@@ -19,3 +19,8 @@
 移植时最初把两个accumulator交给一个MMA issue warp，削弱了作者的独立消费者机制。已修正成两个issue warp，回收B的barrier等待2次MMA完成通知；另补齐8行M分组调度，并用宽TMEM load调优。单独修正issue warp没有明显提速，因此也不能把全部差距归因于这一处。
 
 最终4096³调优版约104μs，同轮cuBLAS约93μs，尚未beat。8192³三轮对普通cuBLAS有3%–4%的小幅优势，但对cuBLASLt基本持平、有胜有负。当前证据不支持“稳定超过最强库基线”，也不支持“TIR语言天然更快”。具体源码、全部输出检查、重复数据和工具日志都在课程目录中。
+
+
+## 问：第 1 版代码看不懂，能否从计算过程开始详细讲？
+
+新增 [第一个 kernel：从一行点积读懂 CuTe 和 Blackwell](part3-cuda/docs/01-single-tile-walkthrough.md)，对应 [完整交互图文页](part3-cuda/docs/01-single-tile-walkthrough.html)。讲解包含小矩阵手算、四次 K16 累加、变量与实际存储的区别、shape/stride、SMEM swizzle 地址实例、descriptor、barrier 和每个线程的 TMEM 写回分工。原第 1 版逐行页也已链接该讲义，并修正混入后续版本概念的注释。

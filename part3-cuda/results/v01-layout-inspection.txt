@@ -1,0 +1,46 @@
+ga layout: (_128,_64,1):(64,_1,_64)
+pa layout: ((_128,_16),_1,_4,1):((64,_1),_0,_16,_64)
+pd layout: ((_128,_128),_1,_1):((128,_1),_0,_0)
+ShapeA: ((_128,_16),_1,_4)
+LA: Sw<3,4,3> o smem_ptr[16b](unset) o ((_128,_16),_1,_4):((_64,_1),_0,_16)
+LA size=8192 cosize=8192
+acc layout: ((_128,_128),_1,_1):((_65536,_1),_0,_0)
+copy: TiledCopy
+  Tiler_MN:       ((_4,_32):(_32,_1),_1:_0,_1:_0)
+  TiledLayout_TV: ((_32,_4),_32):((_0,_1),_4)
+Copy_Atom
+  ThrID:        _32:_1
+  ValLayoutSrc: (_32,_32):(_0,_1)
+  ValLayoutDst: (_32,_1):(_1,_1)
+  ValLayoutRef: (_32,_32):(_0,_1)
+  ValueType:    32b
+
+thread 0 dst shape=((_1,_1),_128,_1,_1) size=128 first=(0,0) second=(0,1) last=(0,127)
+thread 1 dst shape=((_1,_1),_128,_1,_1) size=128 first=(1,0) second=(1,1) last=(1,127)
+thread 31 dst shape=((_1,_1),_128,_1,_1) size=128 first=(31,0) second=(31,1) last=(31,127)
+thread 32 dst shape=((_1,_1),_128,_1,_1) size=128 first=(32,0) second=(32,1) last=(32,127)
+thread 64 dst shape=((_1,_1),_128,_1,_1) size=128 first=(64,0) second=(64,1) last=(64,127)
+thread 127 dst shape=((_1,_1),_128,_1,_1) size=128 first=(127,0) second=(127,1) last=(127,127)
+A descriptor fragment layout: (_1,_1,_4):(_0,_0,_2)
+Swizzle byte-address check uses a 1024-byte-aligned backing array.
+A[0,0] global_element=0 shared_element=0
+A[0,8] global_element=8 shared_element=8
+A[0,16] global_element=16 shared_element=16
+A[0,18] global_element=18 shared_element=18
+A[0,63] global_element=63 shared_element=63
+A[1,0] global_element=64 shared_element=72
+A[1,8] global_element=72 shared_element=64
+A[1,16] global_element=80 shared_element=88
+A[1,18] global_element=82 shared_element=90
+A[1,63] global_element=127 shared_element=119
+A[3,0] global_element=192 shared_element=216
+A[3,8] global_element=200 shared_element=208
+A[3,16] global_element=208 shared_element=200
+A[3,18] global_element=210 shared_element=202
+A[3,63] global_element=255 shared_element=231
+A[8,0] global_element=512 shared_element=512
+A[8,8] global_element=520 shared_element=520
+A[8,16] global_element=528 shared_element=528
+A[8,18] global_element=530 shared_element=530
+A[8,63] global_element=575 shared_element=575
+Exhaustive checks: 8192 SMEM coordinates + 16384 output coordinates; failures=0

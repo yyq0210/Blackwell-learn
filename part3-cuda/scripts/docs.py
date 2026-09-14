@@ -214,13 +214,19 @@ def main():
  for idx,name in enumerate(NAMES):
   v=min(idx+1,9);title=f'{idx+1:02d} · {TITLES[idx]}' if idx<9 else '09T · '+TITLES[idx]
   src=R/'kernels'/f'{name}.cu';ls=notes(src.read_text().splitlines())
+  if idx == 0:
+   from doc_content import V01_NOTES
+   for x in ls:
+    if x['line'] in V01_NOTES: x['note'] = V01_NOTES[x['line']]
   rp=R/'results/final'/f'{name}.json';result=json.loads(rp.read_text()) if rp.exists() and rp.stat().st_size else None
   svg=diagram(v,title);(R/'docs'/f'{name}.svg').write_text(svg)
-  md=f'# {title}\n\n源码：[{name}.cu](../kernels/{name}.cu) · [交互逐行讲解]({name}.html)\n\n'+INTROS[idx]+'\n\n## 数据路径\n\n!['+title+']('+name+'.svg)\n\n## 编译运行\n\n```bash\n./build.sh '+name+'\n./build/'+name+(' 128 128 64' if v==1 else ' 128 128 4096' if v==2 else ' 4096 4096 4096')+'\n```\n\n## 逐行讲解\n\n每个有效源码行都有对应解释；纯空行不编号说明。类型/参数换行继续属于同一个CuTe表达式。\n\n|行|原始代码|解释|\n|---|---|---|\n'
+  deep_md = '先读：[从一行点积读懂本版：详细图解](01-single-tile-walkthrough.md) · [交互计算图](01-single-tile-walkthrough.html#lab)\n\n' if idx == 0 else ''
+  md=f'# {title}\n\n源码：[{name}.cu](../kernels/{name}.cu) · [交互逐行讲解]({name}.html)\n\n'+deep_md+INTROS[idx]+'\n\n## 数据路径\n\n!['+title+']('+name+'.svg)\n\n## 编译运行\n\n```bash\n./build.sh '+name+'\n./build/'+name+(' 128 128 64' if v==1 else ' 128 128 4096' if v==2 else ' 4096 4096 4096')+'\n```\n\n## 逐行讲解\n\n每个有效源码行都有对应解释；纯空行不编号说明。类型/参数换行继续属于同一个CuTe表达式。\n\n|行|原始代码|解释|\n|---|---|---|\n'
   for x in ls:md+='|'+str(x['line'])+'|`'+x['code'].strip().replace('|','\\|')+'`|'+x['note'].replace('|','\\|')+'|\n'
   md+='\n## 实测\n\n'+('```json\n'+json.dumps(result,ensure_ascii=False,indent=2)+'\n```' if result else '见 `results/final/`；最终复测结果生成后重建此页。')+'\n\n公共测试程序详见 [测试与基准](testing.md)。\n'
   (R/'docs'/f'{name}.md').write_text(md)
   intro=''.join('<p>'+html.escape(p).replace('\n','<br>')+'</p>' for p in INTROS[idx].split('\n\n'))
+  if idx == 0: intro='<p><a href="01-single-tile-walkthrough.html"><b>第一次读不懂？先看从一行点积开始的完整图解 →</b></a></p>'+intro
   data=json.dumps(dict(version=v,lines=ls,result=result),ensure_ascii=False).replace('</','<\\/')
   page=PAGE.replace('__TITLE__',html.escape(title)).replace('__SOURCE__','../kernels/'+name+'.cu').replace('__MD__',name+'.md').replace('__INTRO__',intro).replace('__SVG__',svg).replace('__DATA__',data)
   (R/'docs'/f'{name}.html').write_text(page)

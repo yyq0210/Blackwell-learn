@@ -72,3 +72,26 @@ consumer0计算cluster tile的前256行，consumer1计算后256行；两者都�
 
 结果只支持所测shape与环境。若慢于cuBLAS就记录慢；只比cuBLASLt某候选快，不能宣布超过cuBLAS，因为普通cuBLAS可能选择更快的内核。'''
 ]
+
+
+# Specific explanations for v01: avoid introducing later-version machinery.
+V01_NOTES = {
+ 17: '定义本 CTA 的 shared-memory 存储：只有 A、B 输入数组、MMA barrier 和 TMEM 基地址字段。本版没有输出 SMEM buffer。',
+ 27: '这是生成器留下的常量表达式：1>=3 为假，因此 bm=bn=0；本版只处理左上角唯一的输出 tile。',
+ 29: '从 GMEM A 选择 M=128、K=64 的窗口；Step 保留 M/K，忽略 N。ga 的 shape 为 (128,64,1)，最后一维是 K64 大块数。',
+ 30: '从 GMEM B 选择 N=128、K=64 的窗口；Step 保留 N/K，忽略 M。B 按 (N,K) 存储，因此数学输出是 A×Bᵀ。',
+ 31: '从 GMEM D 选择 (128,128) 输出窗口；Step 保留 M/N，忽略 K。本版只有一个 CTA 拥有整块输出。',
+ 33: '仅重组 GMEM 访问视图，pa/pb 为 ((128,16),1,4,1)：指令内元素、M/N重复、K16块数、K64块数；不搬数据。',
+ 34: '将 D 组织为 ((128,128),1,1) 的 GMEM 视图，供 TMEM 布局推导和最终写回使用；此时未给 CUDA 线程分输出。',
+ 40: 'threadIdx.x 为 0..31 的线程属于 warp0。整个 warp 参与 TMEM 分配与 MMA 封装调用，MMA 内部再选一个线程实际发射。',
+ 46: '将申请到的 TMEM 基地址绑定给 acc；这是地址绑定，不是把 128×128 个累加数值赋为 s.tmem。',
+ 49: '本版 nk=1，所以外层 kt 只有 0；内部 kb 才遍历四个 K16 切片。',
+ 57: 'ra 的第 2 个顶层维度为 4；kb=0..3 依次覆盖 K=[0,16)、[16,32)、[32,48)、[48,64)。每次都更新整块 128×128 的 acc。',
+ 63: '本版 kt=0，所有 128 个线程等待 MMA barrier 的 phase 0 完成；之后才能从 TMEM 读取累计结果。',
+ 65: '构造 TMEM load 配置。基础操作是每 warp 从 32 条 datapath 各取一个 FP32；CuTe 重复该操作覆盖整个 acc。',
+ 68: '得到本线程的 GMEM 输出份额。本版真实映射是 thread t 写 D[t,0:128]；这项行归属只适用于当前输出 copy。',
+ 74: '当前线程有 128 个输出元素，因此 i=0..127，逐个执行 FP32→FP16 转换。',
+ 76: '将该线程的 128 个 FP16 输出写到 GMEM 的 dst；本版不经过输出 shared-memory buffer。',
+ 77: '等所有线程完成结果读取和写回流程，warp0 才能释放 TMEM，避免其他 warp 仍在读取时提前回收。',
+ 97: '常量条件均为假，因此启动 grid=(1,1)、128个线程，并为整个 CTA 分配 sizeof(BasicStorage) 字节动态 SMEM。'
+}

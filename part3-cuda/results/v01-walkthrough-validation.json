@@ -1,0 +1,16 @@
+{
+  "date": "2026-09-14",
+  "layout_checks": {
+    "shared_coordinates": 8192,
+    "output_coordinates": 16384,
+    "failures": 0,
+    "method": "Compiled host-side CuTe tensor address/identity-coordinate inspection; 1024-byte-aligned mock SMEM base"
+  },
+  "interactive_checks": {
+    "count": 100,
+    "result": "PASS",
+    "method": "V8 with lightweight DOM/canvas mock; not a browser render"
+  },
+  "svg_xml": "PASS",
+  "kernel_source_changed": false
+}
