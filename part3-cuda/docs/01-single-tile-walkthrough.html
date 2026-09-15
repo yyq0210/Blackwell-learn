@@ -225,6 +225,40 @@ a(3,18) = ga(3,18,0) = pa((3,2),0,1,0) → 元素 210
 </table>
 <p>最后 <code>D[3,5]=16640</code>，写入 <code>p.d[3×128+5] = p.d[389]</code>。这一个数不代表整个 kernel 的输出：四条 MMA 同时覆盖 128×128 个逻辑结果，每个位置都有自己的完整 64 项点积。</p>
 <h3>0.4 swizzle 放大图：逻辑身份、搬运者、物理地址三层分开</h3>
+<p><strong>先澄清图的读法：不是“GMEM 是逻辑、SMEM 是物理”。两种内存都有逻辑视图和实际存放位置。</strong> 原图把上排标为“GMEM / 逻辑 K 顺序”，容易造成这个误解；现已将两排分别标成“GMEM 地址顺序”和“SMEM 地址顺序”，都从左到右按各自缓冲区的地址递增排列。</p>
+<p>逻辑坐标回答“这是矩阵的哪个元素”，布局回答“这个元素放在该缓冲区的什么位置”：</p>
+<pre><code class="language-text">                    同一个逻辑元素 A[3,18]
+                      /                \
+             GMEM 的 row-major      SMEM 的 swizzle
+                    /                    \
+         p.a[210]，行内槽位 18      s.a[202]，行内槽位 10
+</code></pre>
+<p>GMEM 中本版采用 row-major，所以逻辑 k=0、1、2… 的顺序恰好与这一行的地址递增顺序一致；SMEM 中采用 swizzle，所以同样的逻辑 k 次序不再等于地址递增顺序。<strong>这个差别来自本版选择的两种 layout，不是 GMEM/SMEM 各自固有的“逻辑/物理”属性。</strong> GMEM 也可以存重排后的数据，SMEM 也可以用普通行主序。</p>
+<table>
+<thead>
+<tr>
+<th>共同的逻辑身份</th>
+<th>所选布局</th>
+<th>对应缓冲区内的元素偏移</th>
+<th>相对第 3 行行首的槽位</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A[3,18]</td>
+<td>GMEM row-major</td>
+<td>210</td>
+<td>18</td>
+</tr>
+<tr>
+<td>A[3,18]</td>
+<td>SMEM swizzle（图示对齐起点）</td>
+<td>202</td>
+<td>10</td>
+</tr>
+</tbody>
+</table>
+<p>本文的“物理槽位”是指数据在相应内存缓冲区中的实际排列位置，用元素/字节偏移来说明；不是在推导 CUDA 全局指针经过地址翻译后的 DRAM 物理地址。copy 前后保持的是逻辑身份和数值，并不要求保持相对地址偏移。</p>
 <p><img src="v01-swizzle-ownership.svg" alt="A[3,18] 由 thread82 搬到 SMEM 元素202，逻辑sector和物理sector的完整拆解" /></p>
 <p>先把 <code>A[3,18]</code> 看作一个带标签的数据盒：标签是 <strong>“m=3、k=18，数值为 4”</strong>。</p>
 <p><strong>第一层：谁负责搬这个盒子？</strong> 当前输入 copy 的映射只需它的逻辑坐标：</p>

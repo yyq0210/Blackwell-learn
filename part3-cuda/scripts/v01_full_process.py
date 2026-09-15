@@ -48,14 +48,16 @@ def build_figures():
     s+=box(600,240,570,120,'#ccfbf1')+text(618,272,'问题 2：放到哪里？——目标 swizzle 布局',20)
     s+=text(618,308,'q=18/8=2，u=18%8=2；p=q XOR 3=1',18)+text(618,340,'每个 sector 是 16 bytes，容纳 8 个 FP16。',17)
     s+=text(30,405,'第 3 行：行首元素偏移 3×64=192，行首字节偏移 384。',20)
-    s+=text(30,444,'GMEM / 逻辑 K 顺序',17)
+    s+=text(30,444,'GMEM 地址顺序',17)
+    s+=text(30,477,'行主序：槽位 = q',15)
     for q in range(8):
         x=220+q*116;fill='#fde68a' if q==2 else '#e2e8f0'
-        s+=box(x,460,108,93,fill)+text(x+8,486,f'q={q}',18)+text(x+8,514,f'k {q*8}–{q*8+7}',15)+text(x+8,540,f'元素 {192+q*8}–{199+q*8}',12)
+        s+=box(x,460,108,93,fill)+text(x+8,486,f'槽位 {q}',18)+text(x+8,514,f'k {q*8}–{q*8+7}',15)+text(x+8,540,f'元素 {192+q*8}–{199+q*8}',12)
     s+=line(220+2*116+54,558,220+1*116+54,628,'#dc2626',4)
     s+=text(565,588,'选中的逻辑 sector 2 → 物理 sector 1',18,'#b91c1c')
     s+=text(565,617,'sector 内 u=2 保持不变',17,'#b91c1c')
-    s+=text(30,669,'SMEM / 物理槽位顺序',17)
+    s+=text(30,669,'SMEM 地址顺序',17)
+    s+=text(30,700,'槽位 = q XOR 3',15)
     for p in range(8):
         q=p^3;x=220+p*116;fill='#fde68a' if q==2 else '#e2e8f0'
         s+=box(x,640,108,95,fill)+text(x+8,665,f'物理 p={p}',16)+text(x+8,694,f'装逻辑 q={q}',14)+text(x+8,721,f'元素 {192+p*8}–{199+p*8}',12)
@@ -68,8 +70,9 @@ def build_figures():
     s+=text(48,1017,'GMEM 元素：192+2×8+2=210；SMEM 元素：192+1×8+2=202。',19)
     s+=text(48,1052,'字节偏移：420 XOR 48 = 404；404 / 2 = 202。不能对元素偏移直接套字节 swizzle。',17)
     s+=text(48,1084,'物理行内位置 202−192=10，不是新的逻辑 k；不能据此把搬运线程改算成 64+10=74。',17)
-    s+=text(30,1150,'目的不是改变矩阵数学含义，而是按硬件支持的排列存放输入；descriptor 会让 MMA 正确解释这个位置。',17)
-    (R/'docs/v01-swizzle-ownership.svg').write_text(wrap_svg(s,1190,'thread82 搬运 A[3,18] 到 SMEM 元素202的地址分解'))
+    s+=text(30,1150,'两排都按各自内存地址递增绘制。GMEM 的行主序恰好与逻辑 K 次序一致；SMEM 的 swizzle 不一致。',17)
+    s+=text(30,1180,'A[3,18] 是两处数据共同的逻辑身份；210 与 202 是它在两个不同缓冲区中的元素偏移。',17)
+    (R/'docs/v01-swizzle-ownership.svg').write_text(wrap_svg(s,1220,'thread82 搬运 A[3,18] 到 SMEM 元素202的地址分解'))
 
 TRACE_HTML='''<section id="full-trace"><h2>交互：把 v01 从启动到写回完整走一遍</h2><p>固定观察 A[3,18] 与 D[3,5]：A[3,k]=4、B[5,k]=2(k+1)，最终 D[3,5]=16640；与下方交互矩阵采用相同输入规则。bm=bn=0、nk=1、kt=0 固定不变。</p><div class="controls"><button id="trace-prev">上一步</button><label>执行阶段 <input id="trace-step" type="range" min="0" max="11" value="0"></label><button id="trace-next">下一步</button><button id="trace-reset">回到启动</button></div><p id="trace-title" aria-live="polite"></p><p id="trace-action"></p><pre id="trace-alias"></pre><div id="trace-state"></div><p>中途显示的累计值只解释数学贡献：提交异步 MMA 后不能立即读取 acc，必须等完成 barrier。图不模拟 GPU 时钟或各 warp 的精确交错。</p></section>'''
 TRACE_JS=r'''

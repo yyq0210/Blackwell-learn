@@ -36,3 +36,8 @@
 ## 问：把 v01 全过程串起来，画清 bm/bn/nk、layout，以及 A[3,18] 的 swizzle 地址
 
 已补进[现有 v01 讲义的第 0 节](part3-cuda/docs/01-single-tile-walkthrough.md)，配[完整流程交互](part3-cuda/docs/01-single-tile-walkthrough.html#full-trace)。用同一个 A[3,18] 与 D[3,5] 贯穿 ga/pa/sa/ra/pd/acc/src/dst/rf/rh；明确 bm=bn=0、nk=1、kt=0、kb=0…3。第二张新增图逐格画出第 3 行的 sector 重排，以及 thread82 将 GMEM 元素210搬至 SMEM 元素202；线程逻辑所有权、物理槽位、元素/字节偏移分别解释。
+
+
+## 追问：为什么图中 GMEM 标逻辑，而 SMEM 标物理？
+
+原图标签不够准确，已修正：两排都按各自缓冲区的地址递增顺序画。GMEM 与 SMEM 都有逻辑视图和实际存放位置；本版只是 GMEM 的行主序恰好与逻辑 K 次序一致，SMEM 的 swizzle 次序不同。同一逻辑 A[3,18] 对应 GMEM 元素偏移210、SMEM 元素偏移202，不能把两种内存分别等同于“逻辑”和“物理”。解释已补入[原讲义第0.4节](part3-cuda/docs/01-single-tile-walkthrough.md)。
