@@ -1,0 +1,33 @@
+{
+  "date": "2026-09-15",
+  "scope": "Existing v01 guide: full process, loop indices, layout views and swizzle ownership",
+  "svg_xml": {
+    "files": 2,
+    "result": "PASS"
+  },
+  "arithmetic": {
+    "partial_sums": [
+      1088,
+      3136,
+      5184,
+      7232
+    ],
+    "result": 16640,
+    "A_3_18": {
+      "loader": 82,
+      "gmem_element": 210,
+      "smem_element": 202
+    },
+    "B_5_18": {
+      "loader": 82,
+      "gmem_element": 338,
+      "smem_element": 378
+    }
+  },
+  "interactive": {
+    "checks": 8241,
+    "result": "PASS",
+    "method": "V8 with lightweight DOM/canvas mock; includes all 8192 element/byte address conversions, async-read availability and existing lab consistency; not a browser screenshot"
+  },
+  "kernel_source_changed": false
+}

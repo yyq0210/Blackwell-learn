@@ -2,6 +2,8 @@
 from pathlib import Path
 from html import escape
 from markdown_it import MarkdownIt
+from v01_full_process import build_figures, TRACE_HTML, TRACE_JS
+build_figures()
 R = Path(__file__).resolve().parents[1]
 D = R / 'docs'
 COLORS = ['#2563eb', '#0d9488', '#d97706', '#9333ea']
@@ -57,6 +59,7 @@ lab='''<section id="lab"><h2>交互计算图：只看一个输出如何累加</h
 <label>输入列 k <input id="k" type="range" min="0" max="63" value="18"></label><p id="address" aria-live="polite"></p>
 <canvas id="sectors" width="1050" height="165" aria-label="八个 sector 的逻辑次序与 swizzle 后物理次序"></canvas>
 <p>例如把 m 改成 3、k 改成 18：逻辑 sector 2 移到物理 sector 1；GMEM 元素 210 被复制到 SMEM 元素 202。</p></section>'''
+lab=TRACE_HTML+lab
 js=r'''
 const $=id=>document.getElementById(id);
 const colors=['#2563eb','#0d9488','#d97706','#9333ea'];
@@ -82,7 +85,7 @@ function render(){
  drawMatrix(ctx,15,'A：128×64',64,128,m,0,step,false);drawMatrix(ctx,365,'B：128×64，仍按 (N,K) 显示',64,128,n,0,step,false);drawMatrix(ctx,715,'acc：128×128',128,128,m,n,step,true);
  $('sums').innerHTML='<table><thead><tr><th>MMA</th><th>K 区间</th><th>该点的本段贡献</th><th>完成后的累计值</th></tr></thead><tbody>'+v.partial.map((p,i)=>`<tr style="opacity:${i<step?1:0.45}"><td>${i} · ${i===0?'Zero':'One'}</td><td>[${i*16},${i*16+16})</td><td>${p}</td><td>${v.partial.slice(0,i+1).reduce((a,b)=>a+b,0)}</td></tr>`).join('')+'</tbody></table>';
  $('owner').textContent=`写回分工：D[${m},${n}] 由 thread ${m}（warp ${Math.floor(m/32)}，lane ${m%32}）读入寄存器后写回；该线程还负责同一行的另外 127 个结果。此规律只描述本版输出 copy，不描述 A/B 的 cooperative_copy。`;
- $('address').textContent=`A[${m},${k}]：GMEM 元素 ${v.gm}（字节 ${v.gm*2}） → SMEM 元素 ${v.sm}（字节 ${v.sm*2}）。sector ${v.sector} XOR 行低三位 ${m%8} = 物理 sector ${v.physical}；sector 内偏移 ${k%8} 个 FP16 不变。`;
+ $('address').textContent=`A[${m},${k}]：搬运者 thread ${64*(m%2)+k}（warp ${Math.floor((64*(m%2)+k)/32)} / lane ${(64*(m%2)+k)%32}）；GMEM 元素偏移 ${v.gm}（字节偏移 ${v.gm*2}） → SMEM 元素偏移 ${v.sm}（字节偏移 ${v.sm*2}）。sector ${v.sector} XOR 行低三位 ${m%8} = 物理 sector ${v.physical}；sector 内偏移 ${k%8} 个 FP16 不变。`;
  const c=$('sectors').getContext('2d');c.clearRect(0,0,1050,165);c.font='16px system-ui';
  for(let q=0;q<8;q++){const phys=q^(m%8);for(const [x,y,chosen] of [[145+q*108,20,q===v.sector],[145+phys*108,95,q===v.sector]]){c.fillStyle=chosen?'#fde68a':'#dbeafe';c.fillRect(x,y,100,45);c.strokeStyle=chosen?'#b45309':'#94a3b8';c.strokeRect(x,y,100,45);c.fillStyle='#172554';c.fillText(`逻辑 ${q}`,x+18,y+28);}}
  c.fillStyle='#172554';c.fillText('逻辑 K 次序',10,48);c.fillText('物理 SMEM',10,123);
@@ -92,7 +95,8 @@ $('next').addEventListener('click',()=>{$('step').value=Math.min(4,readInt('step
 $('reset').addEventListener('click',()=>{$('step').value=0;render();});
 render();
 '''
+js+=TRACE_JS
 css='''body{max-width:1120px;margin:30px auto;padding:0 22px 70px;color:#172554;font:17px/1.85 system-ui,sans-serif}h1{font-size:32px}h2{margin-top:2.4em;border-bottom:2px solid #dbeafe;padding-bottom:8px}h3{margin-top:1.8em}a{color:#0369a1}pre{padding:20px;background:#f1f5f9;border-radius:9px;overflow:auto;font-size:14px;line-height:1.7}code{font-family:ui-monospace,monospace;font-size:.9em}table{border-collapse:collapse;display:block;overflow:auto;margin:18px 0}th,td{padding:10px 14px;border:1px solid #cbd5e1;vertical-align:top}th{background:#eff6ff}img,canvas{width:100%;height:auto}nav,.controls{display:flex;flex-wrap:wrap;gap:18px;align-items:center}input[type=number]{width:65px;padding:6px}button{padding:8px 16px;cursor:pointer;border:1px solid #93c5fd;background:#eff6ff;border-radius:6px}.controls{padding:20px;background:#f1f5f9}#lab{scroll-margin-top:20px}'''
-page='<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>从一行点积读懂第一个 CuTe kernel</title><style>'+css+'</style></head><body><nav><a href="index.html">课程目录</a><a href="v01_single_tile.html">原逐行代码页</a><a href="01-single-tile-walkthrough.md">Markdown 讲义</a><a href="#lab">直接试交互图</a></nav>'+body+lab+'<script>'+js+'</script></body></html>'
+page='<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>从一行点积读懂第一个 CuTe kernel</title><style>'+css+'</style></head><body><nav><a href="index.html">课程目录</a><a href="v01_single_tile.html">原逐行代码页</a><a href="01-single-tile-walkthrough.md">Markdown 讲义</a><a href="#full-trace">完整流程逐步演示</a><a href="#lab">矩阵与地址交互图</a></nav>'+body+lab+'<script>'+js+'</script></body></html>'
 (D/'01-single-tile-walkthrough.html').write_text(page)
-print('v01 walkthrough: Markdown + HTML + 2 SVGs')
+print('v01 walkthrough: Markdown + HTML + 4 SVGs, full-process trace')

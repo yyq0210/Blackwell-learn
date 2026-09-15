@@ -1,7 +1,281 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>从一行点积读懂第一个 CuTe kernel</title><style>body{max-width:1120px;margin:30px auto;padding:0 22px 70px;color:#172554;font:17px/1.85 system-ui,sans-serif}h1{font-size:32px}h2{margin-top:2.4em;border-bottom:2px solid #dbeafe;padding-bottom:8px}h3{margin-top:1.8em}a{color:#0369a1}pre{padding:20px;background:#f1f5f9;border-radius:9px;overflow:auto;font-size:14px;line-height:1.7}code{font-family:ui-monospace,monospace;font-size:.9em}table{border-collapse:collapse;display:block;overflow:auto;margin:18px 0}th,td{padding:10px 14px;border:1px solid #cbd5e1;vertical-align:top}th{background:#eff6ff}img,canvas{width:100%;height:auto}nav,.controls{display:flex;flex-wrap:wrap;gap:18px;align-items:center}input[type=number]{width:65px;padding:6px}button{padding:8px 16px;cursor:pointer;border:1px solid #93c5fd;background:#eff6ff;border-radius:6px}.controls{padding:20px;background:#f1f5f9}#lab{scroll-margin-top:20px}</style></head><body><nav><a href="index.html">课程目录</a><a href="v01_single_tile.html">原逐行代码页</a><a href="01-single-tile-walkthrough.md">Markdown 讲义</a><a href="#lab">直接试交互图</a></nav><h1>第一个 kernel：从一行点积读懂 CuTe 和 Blackwell</h1>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>从一行点积读懂第一个 CuTe kernel</title><style>body{max-width:1120px;margin:30px auto;padding:0 22px 70px;color:#172554;font:17px/1.85 system-ui,sans-serif}h1{font-size:32px}h2{margin-top:2.4em;border-bottom:2px solid #dbeafe;padding-bottom:8px}h3{margin-top:1.8em}a{color:#0369a1}pre{padding:20px;background:#f1f5f9;border-radius:9px;overflow:auto;font-size:14px;line-height:1.7}code{font-family:ui-monospace,monospace;font-size:.9em}table{border-collapse:collapse;display:block;overflow:auto;margin:18px 0}th,td{padding:10px 14px;border:1px solid #cbd5e1;vertical-align:top}th{background:#eff6ff}img,canvas{width:100%;height:auto}nav,.controls{display:flex;flex-wrap:wrap;gap:18px;align-items:center}input[type=number]{width:65px;padding:6px}button{padding:8px 16px;cursor:pointer;border:1px solid #93c5fd;background:#eff6ff;border-radius:6px}.controls{padding:20px;background:#f1f5f9}#lab{scroll-margin-top:20px}</style></head><body><nav><a href="index.html">课程目录</a><a href="v01_single_tile.html">原逐行代码页</a><a href="01-single-tile-walkthrough.md">Markdown 讲义</a><a href="#full-trace">完整流程逐步演示</a><a href="#lab">矩阵与地址交互图</a></nav><h1>第一个 kernel：从一行点积读懂 CuTe 和 Blackwell</h1>
 <p>对应源码：<a href="../kernels/v01_single_tile.cu">v01_single_tile.cu</a>。本文的行号对应当前 104 行版本。建议先读本文，再用<a href="v01_single_tile.md">原逐行表</a>查单个语句。<a href="01-single-tile-walkthrough.html#lab">交互计算图</a>可以选择输出坐标、推进四次 MMA，并观察 shared memory 的地址重排。</p>
 <p>配套新增：<a href="01-cute-api-atlas.md">CuTe API 与线程编排图册</a> · <a href="01-cute-api-atlas.html#lab">交互选择 CTA / 线程</a>。</p>
 <p>这份代码难读，是因为同一个函数同时表达了数学分块、内存布局、硬件指令和异步同步。先把它们分开：<strong>数学决定要算哪些乘加，layout 决定数据放哪里，copy/gemm 才执行搬运和计算，barrier 决定何时可以使用结果。</strong></p>
+<h2>0. 把整份 v01 串起来：同一输入、同一输出、同一组编号</h2>
+<p>这一节固定追踪 <strong>A[3,18] 怎样参与 D[3,5] 的计算</strong>，不切换到其他大小的 kernel。<a href="01-single-tile-walkthrough.html#full-trace">完整阶段交互</a>可以从 CPU 启动一直推进到写回、释放；下面的静态图也能直接阅读。</p>
+<p>为能给出具体数值，沿用本页交互示例的输入规则：<code>A[m,k]=1+(m%4)</code>，<code>B[n,k]=(1+(n%4))×(k+1)</code>。因此 A 的第 3 行全是 4，B 的第 5 行是 <code>2,4,6,…,128</code>。这只是教学输入，不是之前性能测试的随机数据。</p>
+<p><img src="v01-full-process.svg" alt="v01 从 bm/bn/nk 到所有 layout 视图、MMA 和最终写回的完整过程" /></p>
+<h3>0.1 先给每种数字贴上用途，别混成“第几块”</h3>
+<table>
+<thead>
+<tr>
+<th>名字</th>
+<th>本版值</th>
+<th>究竟表示什么？</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>M、N、K</td>
+<td>128、128、64</td>
+<td>完整问题的尺寸，来自 <code>p.m/p.n/p.k</code></td>
+</tr>
+<tr>
+<td><code>Tile</code></td>
+<td><code>(128,128,64)</code></td>
+<td>本 CTA 准备的工作块尺寸</td>
+</tr>
+<tr>
+<td>单条 MMA 的 M/N/K</td>
+<td>128、128、16</td>
+<td>一条指令处理的乘加范围</td>
+</tr>
+<tr>
+<td><code>bm</code></td>
+<td>0</td>
+<td>输出 tile 的行编号；元素起始行为 <code>bm×128</code></td>
+</tr>
+<tr>
+<td><code>bn</code></td>
+<td>0</td>
+<td>输出 tile 的列编号；元素起始列为 <code>bn×128</code></td>
+</tr>
+<tr>
+<td><code>nk</code></td>
+<td>1</td>
+<td>要处理的 K64 大块<strong>数量</strong>；v01 的代码直接取常量 1</td>
+</tr>
+<tr>
+<td><code>kt</code></td>
+<td>只取 0</td>
+<td>外层循环的 K64 大块<strong>编号</strong>，满足 <code>0&lt;=kt&lt;nk</code></td>
+</tr>
+<tr>
+<td><code>kb</code></td>
+<td>0、1、2、3</td>
+<td>当前 K64 大块内，四条 K16 指令的编号</td>
+</tr>
+<tr>
+<td><code>ki</code></td>
+<td>0…15</td>
+<td>一条 K16 指令里面的 K 坐标；本文用它拆下标，源码没定义此变量</td>
+</tr>
+</tbody>
+</table>
+<p><code>nk</code> 中的 n 表示数量，不是矩阵的 N 轴。<code>bn</code> 则是输出 N 方向的 tile 编号。<strong>nk=1 不等于只发一条 MMA；它表示一个大块，大块内部仍有四条 MMA。</strong></p>
+<p>用普通循环表达真正发生的事：</p>
+<pre><code class="language-cpp">bm = 0; bn = 0;                    // 输出块位置
+nk = 1;                            // K64 块数量
+for (kt = 0; kt &lt; nk; ++kt) {       // 本版只有 kt=0
+    搬入整个 A[:,0:64] 和 B[:,0:64];
+    等所有输入准备好;
+    for (kb = 0; kb &lt; 4; ++kb) {    // 四次 K16 计算
+        使用 k = 64*kt + 16*kb + [0:16);
+        更新同一个 128×128 的 acc;
+    }
+    等这批 MMA 完成;
+}
+把整个 acc 写回 D;
+</code></pre>
+<p>这个式子能将“整体 K 坐标”与两层循环连接起来：</p>
+<pre><code class="language-text">k_global = 64×kt + 16×kb + ki
+18       = 64×0  + 16×1  + 2
+</code></pre>
+<p>所以 A[3,18] 在 <strong>kt=0、kb=1</strong> 时参与 MMA。它并不是第 18 条指令，也不属于第 18 个 CTA。</p>
+<h3>0.2 同一个元素怎样穿过不同视图？</h3>
+<p>图中的每条箭头要区分两种意义：<strong>换视图时数据没动；copy 时数值才从源存储搬到目标存储。</strong> 下表的大小均为实际 v01 的逻辑 shape；下划线整数 <code>_128</code> 等为便于阅读写成普通数字。</p>
+<table>
+<thead>
+<tr>
+<th>阶段/对象</th>
+<th>逻辑 shape</th>
+<th>固定观察点</th>
+<th>此时的含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>a</code></td>
+<td><code>(128,64)</code></td>
+<td><code>a(3,18)</code></td>
+<td>GMEM 完整矩阵视图，元素偏移 210</td>
+</tr>
+<tr>
+<td><code>ga</code></td>
+<td><code>(128,64,1)</code></td>
+<td><code>ga(3,18,0)</code></td>
+<td>选块后还是同一 GMEM 元素；第三维是 kt</td>
+</tr>
+<tr>
+<td><code>pa</code></td>
+<td><code>((128,16),1,4,1)</code></td>
+<td><code>pa((3,2),0,1,0)</code></td>
+<td>按 MMA 分层坐标访问同一 GMEM 元素</td>
+</tr>
+<tr>
+<td><code>sa</code></td>
+<td><code>((128,16),1,4)</code></td>
+<td><code>sa((3,2),0,1)</code></td>
+<td>目标 SMEM 视图；copy 后保存相同数值 4</td>
+</tr>
+<tr>
+<td><code>ra</code></td>
+<td><code>(1,1,4)</code></td>
+<td><code>ra(0,0,1)</code></td>
+<td>指向第二个 K16 输入片的 descriptor，不是单个 A[3,18] 的数值</td>
+</tr>
+<tr>
+<td><code>gd</code></td>
+<td><code>(128,128)</code></td>
+<td><code>gd(3,5)</code></td>
+<td>GMEM 的输出位置，元素偏移 389</td>
+</tr>
+<tr>
+<td><code>pd</code></td>
+<td><code>((128,128),1,1)</code></td>
+<td><code>pd((3,5),0,0)</code></td>
+<td>上述输出的 MMA 分层视图；仍在 GMEM</td>
+</tr>
+<tr>
+<td><code>acc</code></td>
+<td><code>((128,128),1,1)</code></td>
+<td><code>acc((3,5),0,0)</code></td>
+<td>同一逻辑结果在 TMEM 中的累加位置</td>
+</tr>
+<tr>
+<td>thread3 的 <code>src</code></td>
+<td><code>((32,1),128,1,1)</code></td>
+<td>包含 TMEM 的 <code>(3,5)</code></td>
+<td>warp0 的协作读取窗口，源视图可在 warp 内重合</td>
+</tr>
+<tr>
+<td>thread3 的 <code>dst</code></td>
+<td><code>((1,1),128,1,1)</code></td>
+<td>展平后的第 5 个位置</td>
+<td>GMEM 的 D[3,5]；该线程还负责同一行其他列</td>
+</tr>
+<tr>
+<td>thread3 的 <code>rf/rh</code></td>
+<td>与该 <code>dst</code> 相同</td>
+<td><code>rf(5)</code> / <code>rh(5)</code></td>
+<td>FP32 / FP16 线程私有结果 fragment</td>
+</tr>
+</tbody>
+</table>
+<p>前几种 GMEM 视图虽然 shape 不同，计算出的相对<strong>元素偏移</strong>相同：</p>
+<pre><code class="language-text">a(m,k)               ：64*m + k
+
+ga(m,k,kt)           ：64*m + k + 64*kt
+
+pa((m,ki),0,kb,kt)   ：64*m + ki + 16*kb + 64*kt
+
+代入观察点：
+a(3,18) = ga(3,18,0) = pa((3,2),0,1,0) → 元素 210
+</code></pre>
+<p>这里公式只描述本版固定 row stride=64 的具体视图。若换成更大 K，完整矩阵的行 stride 随之变化；不能沿用这个 64 当作任意问题的 GMEM 行跨度。</p>
+<p>SMEM 的 <code>sa</code> 还应用字节地址 swizzle，因而它指向另外一块存储里的元素 202。<code>pd</code> 则使用输出 GMEM 行 stride=128；<code>acc</code> 的 TLane/TCol 编码属于 TMEM 地址空间。<strong>相同 shape 不保证相同布局，更不代表同一物理存储。</strong></p>
+<h3>0.3 把搬入、计算、写回接起来</h3>
+<ol>
+<li><strong>搬入输入。</strong> thread82 负责 A/B 的奇数行、K=18，所以它搬入 A[3,18]=4，也搬入 B[5,18]=38。其他线程完成其他位置；整个 A/B tile 装好后执行 fence 和 CTA 同步。</li>
+<li><strong>提交计算。</strong> warp0 使用四对 <code>ra/rb</code> descriptor 提交 MMA。A[3,18] 的这一个乘积 <code>4×38=152</code>，只是第二个 K16 区间对 D[3,5] 的 16 项贡献之一。</li>
+<li><strong>等计算结束。</strong> <code>umma_arrive</code> 关联此前 MMA，<code>wait_barrier(...,0)</code> 等待完成。下面的累计值是数学解释，不能把“发出了指令”当成“可以立刻读 acc”。</li>
+<li><strong>读出并写回。</strong> thread3 在 warp0 的 TMEM copy 中接收第 3 行结果。TMEM load 完成等待之后，它将 <code>rf(5)</code> 转成 FP16，写到 <code>D[3,5]</code>。搬输入的 thread82 与写这个输出的 thread3 并非同一个线程。</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>kt</th>
+<th>kb</th>
+<th>K 区间</th>
+<th>D[3,5] 的本段贡献</th>
+<th>累加后的数学值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>0</td>
+<td>[0,16)</td>
+<td><code>8×(1+…+16)=1088</code></td>
+<td>1088，第一条忽略旧 acc</td>
+</tr>
+<tr>
+<td>0</td>
+<td>1</td>
+<td>[16,32)</td>
+<td><code>8×(17+…+32)=3136</code></td>
+<td>4224</td>
+</tr>
+<tr>
+<td>0</td>
+<td>2</td>
+<td>[32,48)</td>
+<td><code>8×(33+…+48)=5184</code></td>
+<td>9408</td>
+</tr>
+<tr>
+<td>0</td>
+<td>3</td>
+<td>[48,64)</td>
+<td><code>8×(49+…+64)=7232</code></td>
+<td>16640</td>
+</tr>
+</tbody>
+</table>
+<p>最后 <code>D[3,5]=16640</code>，写入 <code>p.d[3×128+5] = p.d[389]</code>。这一个数不代表整个 kernel 的输出：四条 MMA 同时覆盖 128×128 个逻辑结果，每个位置都有自己的完整 64 项点积。</p>
+<h3>0.4 swizzle 放大图：逻辑身份、搬运者、物理地址三层分开</h3>
+<p><img src="v01-swizzle-ownership.svg" alt="A[3,18] 由 thread82 搬到 SMEM 元素202，逻辑sector和物理sector的完整拆解" /></p>
+<p>先把 <code>A[3,18]</code> 看作一个带标签的数据盒：标签是 <strong>“m=3、k=18，数值为 4”</strong>。</p>
+<p><strong>第一层：谁负责搬这个盒子？</strong> 当前输入 copy 的映射只需它的逻辑坐标：</p>
+<pre><code class="language-text">t = 64×(m%2) + k
+  = 64×1 + 18
+  = 82                        → warp2 / lane18
+</code></pre>
+<p><strong>第二层：从哪里拿？</strong> A 在 GMEM 中按行排列，一行 64 个 FP16：</p>
+<pre><code class="language-text">行首元素偏移 = 3×64 = 192
+元素偏移     = 192+18 = 210
+字节偏移     = 210×2 = 420     → 读取 p.a[210]
+</code></pre>
+<p><strong>第三层：放到哪里？</strong> 目标 SMEM 用 SW128 排列。以下示意假设 SMEM 数组基地址为 1024-byte 对齐；每个 sector 为 16 bytes，装 8 个 FP16：</p>
+<pre><code class="language-text">逻辑 sector q = 18/8 = 2
+sector 内 u   = 18%8 = 2
+本行 swizzle  = m%8 = 3
+物理 sector p = q XOR 3 = 2 XOR 3 = 1
+
+目标元素偏移 = 3×64 + p×8 + u
+             = 192  + 1×8 + 2
+             = 202             → 写入 s.a[202]
+</code></pre>
+<p>在第 3 行，完整排列是：</p>
+<pre><code class="language-text">逻辑 sector q：       0  1  2  3  4  5  6  7
+该 q 对应物理 p：     3  2  1  0  7  6  5  4
+
+按 SMEM 物理槽位看：
+物理槽位 p：          0  1  2  3  4  5  6  7
+里面装的逻辑 sector： 3  2  1  0  7  6  5  4
+                         ↑
+               物理槽位 1 装逻辑 sector 2
+</code></pre>
+<p>这行 XOR 恰好是自身的逆映射，因此上面两种方向写出的数字顺序相同，但两行分别在回答“给定逻辑 q 去哪里”和“给定物理 p 装什么”，别把问题混起来。</p>
+<p>逻辑 sector 2 内原本装 k=16…23，它在 SMEM 的物理 sector 1 内仍保持内部次序：</p>
+<pre><code class="language-text">逻辑 k：             16  17  18  19  20  21  22  23
+GMEM 元素偏移：     208 209 210 211 212 213 214 215
+SMEM 元素偏移：     200 201 202 203 204 205 206 207
+                            ↑
+                    同一个 A[3,18]，数值 4
+</code></pre>
+<p>也可以在字节单位下验算：</p>
+<pre><code class="language-text">420 = 0x1A4
+行相关 XOR 掩码 = 3×16 = 48 = 0x030
+0x1A4 XOR 0x030 = 0x194 = 404 bytes
+404 / sizeof(FP16) = 404/2 = 202 个元素
+</code></pre>
+<p>这里的 420/404 是对应排列中的<strong>字节偏移</strong>，210/202 是<strong>元素偏移</strong>，不是完整指针。真实 GMEM 和 SMEM 属于不同存储空间，基地址也不同；不能把两个偏移之差解释为从某个真实指针“移动了 16 字节”。</p>
+<p>最容易犯的错误是：看到 <code>202-192=10</code>，就认为逻辑 k 变成了 10，再算线程 <code>64+10=74</code>。<strong>10 只是它在物理行内所占的元素槽位；逻辑标签仍是 k=18，因此搬运者仍是 thread82。</strong> 它没有变成 A[3,10]。</p>
+<p>thread82 知道源、目标两份 view，因此能从 <code>p.a[210]</code> 拿到数值，再按目标 view 写到 <code>s.a[202]</code>。MMA 随后使用与 <code>sa</code> 布局一致的 descriptor，把这个槽位解释为 A[3,18]。源行主序、目标 swizzle、MMA descriptor 三者在逻辑坐标上对应起来。</p>
+<p>若换成无 swizzle 的普通目标 row-major 布局，目标位置会是元素 210；但更换 layout 也可能让 <code>cooperative_copy</code> 的分工启发式重新选映射，不能断言任意换布局后 thread82 都不变。本文要区分的是<strong>当前这一套 copy 映射中的逻辑所有权</strong>与<strong>当前目标 layout 中的物理地址</strong>。</p>
+<p>1024-byte 对齐只是让这个相对地址示意不用携带额外的基地址位；实际硬件 swizzle 作用于字节地址。源码 <code>alignas(128)</code> 不等于对任意地址保证 1024-byte 对齐。其他起点应将相关基地址位一起纳入运算。</p>
 <h2>1. 先把 CuTe 遮住：它到底算什么？</h2>
 <p>本版只接受 M=128、N=128、K=64：</p>
 <pre><code class="language-text">A：128 行 × 64 列，FP16，按行连续存放
@@ -520,7 +794,7 @@ copy(rh, dst);                               // 真正 REG → GMEM
 <li><a href="https://github.com/NVIDIA/cutlass/blob/v4.6.0/include/cute/arch/mma_sm100_umma.hpp">MMA 指令封装：内部选线程发射</a></li>
 <li><a href="https://github.com/NVIDIA/cutlass/blob/v4.6.0/include/cute/atom/copy_traits_sm100.hpp">TMEM copy traits 与线程映射构造</a></li>
 </ul>
-<section id="lab"><h2>交互计算图：只看一个输出如何累加</h2>
+<section id="full-trace"><h2>交互：把 v01 从启动到写回完整走一遍</h2><p>固定观察 A[3,18] 与 D[3,5]：A[3,k]=4、B[5,k]=2(k+1)，最终 D[3,5]=16640；与下方交互矩阵采用相同输入规则。bm=bn=0、nk=1、kt=0 固定不变。</p><div class="controls"><button id="trace-prev">上一步</button><label>执行阶段 <input id="trace-step" type="range" min="0" max="11" value="0"></label><button id="trace-next">下一步</button><button id="trace-reset">回到启动</button></div><p id="trace-title" aria-live="polite"></p><p id="trace-action"></p><pre id="trace-alias"></pre><div id="trace-state"></div><p>中途显示的累计值只解释数学贡献：提交异步 MMA 后不能立即读取 acc，必须等完成 barrier。图不模拟 GPU 时钟或各 warp 的精确交错。</p></section><section id="lab"><h2>交互计算图：只看一个输出如何累加</h2>
 <p>示例输入固定为 A[m,k]=1+(m mod 4)，B[n,k]=(1+(n mod 4))×(k+1)。默认 m=n=0，四次结果正好是 136、528、1176、2080。图画出真实维度，放大点积用数学值展示；不模拟 GPU 时间或 FP16 舍入。</p>
 <div class="controls"><label>输出行 m <input id="m" type="number" min="0" max="127" value="0"></label><label>输出列 n <input id="n" type="number" min="0" max="127" value="0"></label><label>已完成 MMA <input id="step" type="range" min="0" max="4" value="0"></label><button id="next">下一步</button><button id="reset">重置</button></div>
 <p id="stage" aria-live="polite"></p><canvas id="matrices" width="1050" height="365" aria-label="A、B 的 K16 区间和被更新的输出点">请启用 JavaScript 查看交互图，上方 SVG 可直接阅读。</canvas>
@@ -554,7 +828,7 @@ function render(){
  drawMatrix(ctx,15,'A：128×64',64,128,m,0,step,false);drawMatrix(ctx,365,'B：128×64，仍按 (N,K) 显示',64,128,n,0,step,false);drawMatrix(ctx,715,'acc：128×128',128,128,m,n,step,true);
  $('sums').innerHTML='<table><thead><tr><th>MMA</th><th>K 区间</th><th>该点的本段贡献</th><th>完成后的累计值</th></tr></thead><tbody>'+v.partial.map((p,i)=>`<tr style="opacity:${i<step?1:0.45}"><td>${i} · ${i===0?'Zero':'One'}</td><td>[${i*16},${i*16+16})</td><td>${p}</td><td>${v.partial.slice(0,i+1).reduce((a,b)=>a+b,0)}</td></tr>`).join('')+'</tbody></table>';
  $('owner').textContent=`写回分工：D[${m},${n}] 由 thread ${m}（warp ${Math.floor(m/32)}，lane ${m%32}）读入寄存器后写回；该线程还负责同一行的另外 127 个结果。此规律只描述本版输出 copy，不描述 A/B 的 cooperative_copy。`;
- $('address').textContent=`A[${m},${k}]：GMEM 元素 ${v.gm}（字节 ${v.gm*2}） → SMEM 元素 ${v.sm}（字节 ${v.sm*2}）。sector ${v.sector} XOR 行低三位 ${m%8} = 物理 sector ${v.physical}；sector 内偏移 ${k%8} 个 FP16 不变。`;
+ $('address').textContent=`A[${m},${k}]：搬运者 thread ${64*(m%2)+k}（warp ${Math.floor((64*(m%2)+k)/32)} / lane ${(64*(m%2)+k)%32}）；GMEM 元素偏移 ${v.gm}（字节偏移 ${v.gm*2}） → SMEM 元素偏移 ${v.sm}（字节偏移 ${v.sm*2}）。sector ${v.sector} XOR 行低三位 ${m%8} = 物理 sector ${v.physical}；sector 内偏移 ${k%8} 个 FP16 不变。`;
  const c=$('sectors').getContext('2d');c.clearRect(0,0,1050,165);c.font='16px system-ui';
  for(let q=0;q<8;q++){const phys=q^(m%8);for(const [x,y,chosen] of [[145+q*108,20,q===v.sector],[145+phys*108,95,q===v.sector]]){c.fillStyle=chosen?'#fde68a':'#dbeafe';c.fillRect(x,y,100,45);c.strokeStyle=chosen?'#b45309':'#94a3b8';c.strokeRect(x,y,100,45);c.fillStyle='#172554';c.fillText(`逻辑 ${q}`,x+18,y+28);}}
  c.fillStyle='#172554';c.fillText('逻辑 K 次序',10,48);c.fillText('物理 SMEM',10,123);
@@ -563,4 +837,33 @@ for(const id of ['m','n','step','k'])$(id).addEventListener('input',render);
 $('next').addEventListener('click',()=>{$('step').value=Math.min(4,readInt('step',4)+1);render();});
 $('reset').addEventListener('click',()=>{$('step').value=0;render();});
 render();
+
+function traceModel(stage){
+ const totals=[1088,4224,9408,16640];
+ const rows=[
+ ['0 · CPU 构造视图并启动','1 CTA × 128 线程。bm=bn=0；nk=1 表示一个 K64 大块。','a(3,18) → p.a[210]=4\nb(5,18) → p.b[338]=38\nd(3,5) → p.d[389]，尚未产生本次结果'],
+ ['1 · make_coord + local_tile','coord=(0,0,_)，只选唯一输出块，并保留大小为 1 的 K64 块轴。','ga(3,18,0) = a(3,18)\ngb(5,18,0) = b(5,18)\nga/gb shape=(128,64,1)，gd=(128,128)'],
+ ['2 · partition + fragment','取得 CTA0 的 MMA 份额，建立 GMEM / SMEM / descriptor / TMEM 视图；尚未搬入矩阵。','pa((3,2),0,1,0) 仍指向 GMEM A[3,18]\nsa((3,2),0,1) 指向 SMEM 目标；ra(0,0,1) 描述第二个 K16 输入片\npd((3,5),0,0) 与 acc((3,5),0,0) 逻辑输出相同，存储空间不同'],
+ ['3 · 分配 TMEM 并初始化同步','warp0 分配 128 列；thread0 初始化 barrier；全 CTA 同步后绑定 acc 地址。','acc.data() = s.tmem\nacc 尚未初始化；ScaleOut::Zero 只让第一条 MMA 忽略旧值，并未在此执行清零'],
+ ['4 · kt=0：合作装入 A/B','全部 128 线程合作。thread82 搬入 A[3,18] 和 B[5,18]；随后 fence + CTA 同步。','pa((3,2),0,1,0) → sa((3,2),0,1)\np.a[210]=4 → s.a[202]=4\np.b[338]=38 → s.b[378]=38（SMEM 起点 1024-byte 对齐的示意）'],
+ ['5 · 提交 kb=0，K=[0,16)','warp0 提交第一条 K16 MMA，ScaleOut::Zero；此后模式变成 One。','ra(0,0,0) / rb(0,0,0)\n对 D[3,5] 的数学贡献：8×(1+…+16)=1088\n整块 128×128 acc 都在本条操作的覆盖范围内'],
+ ['6 · 提交 kb=1，K=[16,32)','第二条 MMA 使用包含 A[3,18] 的输入片，继续累加。','ra(0,0,1) / rb(0,0,1)\nA[3,18]×B[5,18]=4×38=152，只是本段 16 项中的一项\n本段贡献 3136；累计数学目标 4224'],
+ ['7 · 提交 kb=2，K=[32,48)','第三条 MMA 累加到同一个 acc；kt 仍然是 0。','ra(0,0,2) / rb(0,0,2)\n本段贡献 5184；累计数学目标 9408'],
+ ['8 · 提交 kb=3，K=[48,64)','第四条 MMA 仍更新同一块 acc；不是另算第四块输出。','ra(0,0,3) / rb(0,0,3)\n本段贡献 7232；累计数学目标 16640'],
+ ['9 · 等待全部 MMA 完成','umma_arrive 关联此前 MMA，所有线程 wait_barrier(phase=0)。此时结果才可读取。','acc((3,5),0,0) = 16640\nTMEM 相对坐标：TLane=3，TCol=5；不是普通线性内存 stride'],
+ ['10 · TMEM → REG → FP16 → GMEM','cp.get_slice(3) 取 thread3 的 copy 份额。协作读取并 wait::ld 后转换、写回。','src：warp0 的 TMEM 行 0–31 协作窗口\nthread3 的 rf[5]=16640 → rh[5] → dst[5]\ndst[5] 对应 pd((3,5),0,0) → p.d[389]'],
+ ['11 · CTA 同步并回收 TMEM','所有线程结束读取/写回流程，warp0 释放 TMEM。kernel 完成。','D[3,5] = FP16(16640)\n其余 16383 个输出也已由对应线程写回；本次 TMEM 存储已释放']
+ ];
+ return {row:rows[stage],smem:stage>=4?'A: s.a[202]=4；B: s.b[378]=38':'输入尚未装入',acc:stage<3?'未申请':stage<5?'已绑定，但内容未初始化':stage<9?'MMA 已提交；数学目标 '+totals[stage-5]+'，尚不可直接读取':stage<11?'计算完成：acc[3,5]=16640':'已释放',output:stage<10?'D 尚未写入本次结果':'D[3,5]=16640'};
+}
+function traceRender(){
+ const stage=readInt('trace-step',11),v=traceModel(stage);
+ $('trace-title').textContent=v.row[0];$('trace-action').textContent=v.row[1];$('trace-alias').textContent=v.row[2];
+ $('trace-state').innerHTML='<table><tr><th>输入 SMEM</th><td>'+v.smem+'</td></tr><tr><th>结果 TMEM</th><td>'+v.acc+'</td></tr><tr><th>输出 GMEM</th><td>'+v.output+'</td></tr></table>';
+}
+$('trace-step').addEventListener('input',traceRender);
+$('trace-prev').addEventListener('click',()=>{$('trace-step').value=Math.max(0,readInt('trace-step',11)-1);traceRender();});
+$('trace-next').addEventListener('click',()=>{$('trace-step').value=Math.min(11,readInt('trace-step',11)+1);traceRender();});
+$('trace-reset').addEventListener('click',()=>{$('trace-step').value=0;traceRender();});
+traceRender();
 </script></body></html>

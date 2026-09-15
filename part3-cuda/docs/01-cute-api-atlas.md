@@ -4,6 +4,8 @@
 
 先记一句话：**先选数学上的数据块，再组织硬件需要的访问形式，最后由参与线程执行 copy 和 MMA。** 下面这些函数并非都在“给线程分数据”。
 
+新增 [固定 v01 的完整计算流程与 swizzle 放大图](01-single-tile-walkthrough.md) · [从启动到释放的阶段交互](01-single-tile-walkthrough.html#full-trace)。这里固定 bm=bn=0、nk=1，避免把下文较大矩阵的选块演示误认为 v01 的运行尺寸。
+
 ## 1. 一张图串起全部 API
 
 ![从坐标到 copy/MMA 的 API 关系图](v01-api-chain.svg)

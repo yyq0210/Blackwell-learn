@@ -31,3 +31,8 @@
 新增 [CuTe API 图册](part3-cuda/docs/01-cute-api-atlas.md) 和 [交互页面](part3-cuda/docs/01-cute-api-atlas.html)。五张 SVG 串起坐标选块、MMA 分层坐标、descriptor fragment、输入与输出的两种线程映射，以及 TMEM 协作源窗口到各 lane 的寄存器结果。
 
 本版实际输入搬运者 `t=64*(row%2)+k`，输出写回者 `t=m`；`cooperative_copy<128>` 默认向量宽度为 16 bits。`mma.get_slice(0)` 在本原语中取 CTA 份额，`cp.get_slice(t)` 取线程份额。TMEM `partition_S` 表示协作源窗口，不能直接把它的元素数当成该线程接收的寄存器数量。上述结论均已结合当前 CUTLASS 进行布局/普通复制诊断，并补回原讲义。
+
+
+## 问：把 v01 全过程串起来，画清 bm/bn/nk、layout，以及 A[3,18] 的 swizzle 地址
+
+已补进[现有 v01 讲义的第 0 节](part3-cuda/docs/01-single-tile-walkthrough.md)，配[完整流程交互](part3-cuda/docs/01-single-tile-walkthrough.html#full-trace)。用同一个 A[3,18] 与 D[3,5] 贯穿 ga/pa/sa/ra/pd/acc/src/dst/rf/rh；明确 bm=bn=0、nk=1、kt=0、kb=0…3。第二张新增图逐格画出第 3 行的 sector 重排，以及 thread82 将 GMEM 元素210搬至 SMEM 元素202；线程逻辑所有权、物理槽位、元素/字节偏移分别解释。
