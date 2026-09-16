@@ -4,6 +4,8 @@
 
 这里对应原书第三部分的GEMM三章。包含9个独立CUDA C++ kernel、1个第9版调优变体，以及每版的逐行中文讲解和交互可视化。所有kernel已在本机B300上编译运行；没有Python DSL/PyTorch依赖。
 
+v02–v09及调优版已各补充完整计算流程图与机制放大图，共18张SVG。每版从上一版的变化出发，跟踪具体元素与layout视图，并说明线程分工、缓冲复用、barrier及复习答案。交互页可修改nk、kt、任务轮数、consumer、peer和输出ei，观察坐标与phase如何联动。
+
 - [CuTe C++前置知识](docs/00-CuTe前置知识.md)
 - [实测结果与“TIR为何能持平cuBLAS”](docs/performance.md)
 - [共享C++测试代码逐行讲解](docs/testing.md)
@@ -69,6 +71,8 @@ STUDY_SANITIZER_ONLY=1 ../../.toolchains/cuda-13.0/compute-sanitizer/compute-san
 - `docs/`：逐行Markdown、独立SVG与无需前端依赖的交互HTML。
 
 每个`.cu`包含完整算法；公共参数和测试入口在`include/common.cuh`、`include/runner_graph.cuh`与`include/benchmark.cuh`。开发时的共享模板保留在`include/basic.cuh`、`include/tma.cuh`、`include/warp_specialized.cuh`，**不是阅读独立源码的必经路径**。`scripts/materialize.py`会从模板重新生成所有版本，覆盖手动修改的对应`.cu`；学习时直接修改并编译某一份`.cu`即可。
+
+后续版本的布局证据见 [坐标诊断结果](results/later-layout-inspection.txt)：`./scripts/check_later_layouts.sh` 在B300上用单个GPU线程检查单/双CTA分片及窄/宽load的坐标映射，不执行MMA/TMEM数据指令。讲义中的性能数据沿用原实测，本轮文档更新没有重新计时。
 
 生成讲义使用现有docs312环境，运行 `./build_docs.sh` 即可重建所有页面与校验链接。C++编译不依赖这些Python文档工具。
 

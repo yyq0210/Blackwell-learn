@@ -1,0 +1,70 @@
+{
+  "runtime": "V8 with lightweight DOM model; not a real-browser visual test",
+  "pages": [
+    {
+      "page": "v01_single_tile.html",
+      "initialization": true,
+      "code_click_search": true,
+      "control_boundaries": true
+    },
+    {
+      "page": "v02_k_loop.html",
+      "initialization": true,
+      "code_click_search": true,
+      "control_boundaries": true
+    },
+    {
+      "page": "v03_multi_cta.html",
+      "initialization": true,
+      "code_click_search": true,
+      "control_boundaries": true
+    },
+    {
+      "page": "v04_tma.html",
+      "initialization": true,
+      "code_click_search": true,
+      "control_boundaries": true
+    },
+    {
+      "page": "v05_double_buffer.html",
+      "initialization": true,
+      "code_click_search": true,
+      "control_boundaries": true
+    },
+    {
+      "page": "v06_persistent.html",
+      "initialization": true,
+      "code_click_search": true,
+      "control_boundaries": true
+    },
+    {
+      "page": "v07_warp_specialized.html",
+      "initialization": true,
+      "code_click_search": true,
+      "control_boundaries": true
+    },
+    {
+      "page": "v08_two_cta.html",
+      "initialization": true,
+      "code_click_search": true,
+      "control_boundaries": true
+    },
+    {
+      "page": "v09_multi_consumer.html",
+      "initialization": true,
+      "code_click_search": true,
+      "control_boundaries": true
+    },
+    {
+      "page": "v09_tuned.html",
+      "initialization": true,
+      "code_click_search": true,
+      "control_boundaries": true
+    }
+  ],
+  "protocol_cases": 4080,
+  "grouped_grid_cases": 225,
+  "output_ownership_cases": 9,
+  "assertions": 668487,
+  "issues": []
+}

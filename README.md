@@ -21,7 +21,7 @@
 | 数据布局及其记号 | 阅读中，已补充前置知识、通俗图解和交互实验室 | [03-数据布局及其记号.md](03-数据布局及其记号.md) |
 | Tensor Core 数据布局的演进 | 阅读中，ldmatrix三图及本轮问答已整理 | [04-TensorCore数据布局演进.md](04-TensorCore数据布局演进.md) |
 | 异步数据搬运：TMA | 阅读中，128B swizzle与row layout问答已整理 | [05-异步数据搬运-TMA.md](05-异步数据搬运-TMA.md) |
-| 第三部分 GEMM（CUDA C++ / CuTe重写） | 9版及调优版已编译运行，配套逐行讲解和交互图 | [06-GEMM-CuTe-CUDA-C++重写.md](06-GEMM-CuTe-CUDA-C++重写.md) |
+| 第三部分 GEMM（CUDA C++ / CuTe重写） | 9版及调优版已编译运行；后续9版补齐完整图解、18张SVG与编号实验 | [06-GEMM-CuTe-CUDA-C++重写.md](06-GEMM-CuTe-CUDA-C++重写.md) |
 
 后续按教材阅读进度新增章节文件并更新本索引。
 

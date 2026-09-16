@@ -1,6 +1,8 @@
 from pathlib import Path
 import json,re,html,sys
 from doc_content import TITLES,INTROS
+from markdown_it import MarkdownIt
+from later_lessons import build_lesson_figures, lesson_markdown
 R=Path(__file__).resolve().parents[1]
 NAMES=['v01_single_tile','v02_k_loop','v03_multi_cta','v04_tma','v05_double_buffer','v06_persistent','v07_warp_specialized','v08_two_cta','v09_multi_consumer','v09_tuned']
 # Each rule describes the concrete operation, not a translation of the variable name alone.
@@ -32,7 +34,7 @@ RULES=[
 (r'mma_arrive\(&s\.acc_full','本消费者整个K-loop结束，提交自己那段TMEM的结果就绪通知。','sync'),
 (r'umma_arrive\(&s\.done','为这轮K tile的MMA提交完成通知，下一次复用输入SMEM前等待它。','sync'),
 (r'umma_arrive\(bar','单CTA的MMA完成通知辅助函数；和双CTA分支提供相同的上层含义。','sync'),
-(r'cooperative_copy','128个线程合作执行普通global load与shared store；CuTe按布局推导分配和可用的向量宽度。这不是TMA。','gmem'),
+(r'cooperative_copy','128线程按源/目标layout分工执行普通global load与shared store；此重载默认MaxVecBits等于元素位宽，FP16即16bits。这不是TMA。','gmem'),
 (r'copy\((ca|cb|tma_a|tma_b)\.with','发起TMA异步加载：从global坐标对应tile搬到当前stage的SMEM，并将完成字节记到with指定的barrier。','gmem'),
 (r'copy\((cd|tma_d),','发起SMEM→GMEM的TMA store。这个调用返回不代表数据已经写完，后面还要commit/wait。','gmem'),
 (r'tma_store_fence','把writeback线程的shared store公布给TMA异步代理；所有写入线程都要执行，然后做WG/CTA同步。','sync'),
@@ -51,7 +53,7 @@ RULES=[
 (r'make_fragment_[AB]','把SMEM tensor转换成MMA操作数descriptor fragment；这里不执行SMEM→寄存器的数据复制。','mma'),
 (r'make_tmem_copy','用选定tcgen05 load atom和accumulator布局构造线程级复制方案；随后get_slice才取出当前线程的份额。','tmem'),
 (r'SM100_TMEM_LOAD','指定TMEM load指令形状。32dp32b指32条datapath上的32-bit数据；1x或32x决定单条指令覆盖多少列。','tmem'),
-(r'\.partition_S','按copy的线程映射取源分片；TMEM copy中它指当前线程要读的TMEM位置，不是另分配一块TMEM。','tmem'),
+(r'\.partition_S','取copy操作的源视图；TMEM协作指令中可表示warp共享的源窗口。其逻辑元素数不等于每线程寄存器数，需结合destination映射理解。','tmem'),
 (r'\.partition_D','按同一个copy映射取目标分片，使每个源结果落到对应输出坐标；目标可能是SMEM或GMEM。','rmem'),
 (r'tma_partition','把MMA分片/epilogue分片转成TMA的源、目标视图。ag/bg/dg是global坐标，as/bs/ds是shared目标或源；尚未搬数据。','host'),
 (r'zipped_divide','把完整输出拆成epilogue子tile和子tile编号。128×64只限制每轮处理量，不改变完整输出的形状。','tmem'),
@@ -145,7 +147,7 @@ RULES=[
 (r'using (LA|LD|AShape|BShape|ShapeA)','定义静态layout或shape类型：输入layout服务MMA，LD服务128×64的输出TMA分块。','host'),
 (r'\b(Mma|MM) mma;','构造本线程的轻量MMA描述对象，包含累加模式等状态；不是在每个线程里分配一个Tensor Core。','mma'),
 (r'(TMEM::Allocator1Sm|Alloc) alloc;','创建TMEM分配器接口对象；真正申请发生在allocate调用。','tmem'),
-(r'struct (BasicStorage|TmaStorage|Storage)','定义每CTA的shared-memory存储结构；内含A/B、输出buffer和barrier元数据。','smem'),
+(r'struct (BasicStorage|TmaStorage|Storage)','定义每CTA的shared-memory结构；按本结构体字段分配输入、同步元数据及适用版本中的输出缓冲。前三版没有输出SMEM buffer。','smem'),
 (r'struct WSConfig','集中定义本版的静态MMA形状、线程数、TMEM容量与SMEM结构。','host'),
 (r'template <','声明C++模板参数；CuTe的Tensor/layout类型在编译时决定，运行时不做Python解释。','host'),
 (r'__global__ void','定义真正运行在GPU上的CUDA kernel。每个CTA获得独立SMEM，各线程按照后面的warp条件分工。','host'),
@@ -164,6 +166,8 @@ def notes(lines):
   if not z:continue
   if z.startswith('//'):
    n='说明性注释，不生成机器指令。对应的中文机制解释见本节开头和下面的实际语句。';tag='host'
+  elif z.startswith('#include'):
+   n='引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。';tag='host'
   elif re.fullmatch(r'[{};]+(?:\s*//.*)?',z) or z.startswith('} //'):
    n='结束当前代码块或类型声明；作用域对应上方最近的函数、循环或条件分支。';tag=last[2]
   elif z.startswith('if constexpr'):
@@ -182,34 +186,31 @@ def notes(lines):
 
 def diagram(v,title):
  colors={'gmem':'#2563eb','smem':'#0e9488','mma':'#d97706','tmem':'#7c3aed','rmem':'#db2777'}
- labels=[('gmem','GMEM: A / B'),('smem','SMEM: swizzled A / B'),('mma','tcgen05 MMA'),('tmem','TMEM: FP32 accumulator'),('rmem','REG: FP32 → FP16'),('gmem','GMEM: D')]
+ labels=[('gmem','GMEM: A / B'),('smem','SMEM: swizzled A / B'),('mma','tcgen05: MMA'),('tmem','TMEM: FP32 accumulator'),('rmem','REG: FP32 → FP16'),('gmem','GMEM: D')]
+ if v>=4:labels.insert(-1,('smem','SMEM: output → TMA store'))
+ step=910/len(labels);bw=step-14
  boxes=''
  for j,(tag,label) in enumerate(labels):
-  x=24+j*155;y=80
-  boxes+=f'<g id="node-{j}" data-tag="{tag}"><rect x="{x}" y="{y}" width="140" height="76" rx="10" fill="{colors[tag]}"/><text x="{x+70}" y="{y+30}" fill="white" text-anchor="middle" font-size="12">{html.escape(label.split(":")[0])}</text><text x="{x+70}" y="{y+52}" fill="white" text-anchor="middle" font-size="10">{html.escape(label.split(":")[-1])}</text></g>'
-  if j<5:boxes+=f'<path d="M{x+142} 118h12" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>'
+  x=24+j*step;y=80
+  boxes+=f'<g id="node-{j}" data-tag="{tag}"><rect x="{x}" y="{y}" width="{bw}" height="76" rx="10" fill="{colors[tag]}"/><text x="{x+bw/2}" y="{y+30}" fill="white" text-anchor="middle" font-size="12">{html.escape(label.split(":")[0])}</text><text x="{x+bw/2}" y="{y+52}" fill="white" text-anchor="middle" font-size="9">{html.escape(label.split(":")[-1])}</text></g>'
+  if j<len(labels)-1:boxes+=f'<path d="M{x+bw+1} 118h12" stroke="#64748b" stroke-width="2" marker-end="url(#arr)"/>'
  loads='128 threads: ordinary load/store' if v<=3 else 'one TMA issue thread per CTA'
- detail='1 CTA / 1 SM' if v<=7 else 'CTA0 / SM0 + CTA1 / SM1: cooperative MMA'
+ detail='1 CTA / 1 SM' if v<=7 else 'peer0 / its SM + peer1 / its SM: cooperative MMA'
  if v==9:detail+='; two independent MMA issue warps'
  return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 230" role="img" aria-label="{html.escape(title)} 数据路径"><defs><marker id="arr" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto"><path d="M0 0L5 2.5L0 5" fill="none" stroke="#64748b"/></marker></defs><rect width="960" height="230" fill="#f8fafc" rx="12"/><text x="24" y="30" font-size="18" font-family="sans-serif">{html.escape(title)}</text><text x="24" y="55" font-size="13">{loads}</text>{boxes}<text x="24" y="191" font-size="13">{detail}</text><text x="24" y="214" font-size="12">Async instruction issue ≠ completion. Follow the barrier / wait before reuse.</text></svg>'''
 
 PAGE=r'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>__TITLE__</title><style>
 body{margin:0;background:#f1f5f9;color:#0f172a;font:16px/1.7 system-ui,sans-serif}main{max-width:1450px;margin:auto;padding:28px}h1{font-size:28px}a{color:#0369a1}section,.intro{background:white;border-radius:12px;padding:22px;margin:20px 0;border:1px solid #dbe3eb}svg{width:100%;max-height:260px}label{display:inline-block;margin:8px 24px 8px 0}input{vertical-align:middle}button,select{padding:7px 14px;border:1px solid #94a3b8;border-radius:5px;background:white;color:#0f172a}#buffers,#roles{display:flex;gap:12px;flex-wrap:wrap}.buffer,.role{padding:12px 18px;border:2px solid #cbd5e1;border-radius:8px}.current{border-color:#7c3aed;background:#f5f3ff}#detail{padding:14px;background:#e0f2fe;border-radius:8px;min-height:48px}.source{max-height:680px;overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}td{padding:5px 8px;vertical-align:top;border-bottom:1px solid #e2e8f0}td:nth-child(1){width:45px;color:#64748b}td:nth-child(2){width:55%;white-space:pre-wrap;font:12px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}tr{cursor:pointer}tr:hover,tr.selected{background:#e0f2fe}#timeline{display:grid;grid-template-columns:100px repeat(18,1fr);gap:4px;font-size:12px}.task{min-width:28px;border-radius:4px;background:#dbeafe;padding:8px;text-align:center}.muted{color:#64748b}.code-tools{position:sticky;top:0;background:white;padding:8px}input[type=search]{width:280px;padding:8px;border:1px solid #cbd5e1}pre{white-space:pre-wrap}g.active rect{stroke:#facc15;stroke-width:5}#tilemap{width:100%;max-width:640px}#tmemmap{display:flex;gap:12px;margin:12px 0;flex-wrap:wrap}.sm{padding:12px;border:1px solid #94a3b8;border-radius:8px}.range{display:inline-block;padding:8px;background:#ede9fe;margin:3px}.chosen{background:#fef08a}#timeline{overflow:auto}#results{font-variant-numeric:tabular-nums}.var{font-family:monospace}@media(max-width:800px){main{padding:10px}td:nth-child(2){width:50%}#timeline{font-size:9px}section{padding:12px}}
-</style><main><a href="index.html">← 版本目录</a><h1>__TITLE__</h1><p><a href="__SOURCE__">完整 CUDA C++ 源码</a> · <a href="__MD__">Markdown 讲义</a> · <a href="testing.html">测试代码逐行讲解</a></p><div class="intro">__INTRO__</div><section><h2>数据路径与角色</h2>__SVG__<div id="roles"></div><p class="muted">点下面任意源码行，图中高亮它操作的存储/计算环节。同步行请同时观察解释中的依赖关系。</p></section><section><h2>切换任务，观察 stage / phase / consumer</h2><label>K tile <input id="kt" type="range" min="0" max="7" value="0"><b id="ktLabel"></b></label><button id="next">推进一轮</button><label>消费者 <select id="consumer"><option value="0">0</option><option value="1">1</option></select></label><label>逻辑 tile <input id="tile" type="range" min="0" max="63" value="0"></label><div id="buffers"></div><pre id="mapping"></pre><canvas id="tilemap" width="640" height="260" aria-label="输出tile网格，蓝色共用B，绿色共用A，黄色为当前tile"></canvas><div id="tmemmap"></div><div id="timeline"></div><p class="muted">两个滑块分别演示输入环和输出任务映射；K图展示一轮输出内的前8个K tiles（第1版仅1个）。这是依赖关系示意，不代表实测时间比例。第5版开始才有输入双缓冲；第7版开始不同角色有独立warp指令流；第9版才有两个独立MMA issue warp。</p></section><section><h2>本版本实测</h2><div id="results"></div></section><section><h2>逐行讲解</h2><div class="code-tools"><input id="query" type="search" placeholder="搜索源码或解释，如 barrier / stage"><span id="count"></span><div id="detail">点击源码行查看解释并定位图示。</div></div><div class="source"><table><tbody id="code"></tbody></table></div></section><section><h2>自查</h2><p>1. 本版谁发起加载？谁等待数据可读？谁通知输入可覆盖？</p><p>2. 写回线程等待的是full[stage]还是acc_full[consumer]？为什么？</p><p>3. 下一轮能否覆盖SMEM和TMEM？分别由哪个完成事件保证？</p><p>答案：前三版加载由128线程完成，MMA完成barrier保护SMEM；TMA版本的full跟踪输入到达，MMA完成/empty跟踪输入消费。WS版writeback等待acc_full，因为它读的是最终TMEM结果；acc_empty保护下一输出的TMEM复用。第9版empty必须收到两位MMA消费者的完成通知。</p></section></main><script id="data" type="application/json">__DATA__</script><script>
+.lesson img{width:100%;height:auto}.lesson table{font-size:15px;margin:20px 0}.lesson td:nth-child(1),.lesson td:nth-child(2){width:auto;white-space:normal;font:inherit;color:inherit}.lesson th{padding:10px;text-align:left;background:#eff6ff}.lesson td{padding:10px}.lesson tr{cursor:auto}.lesson h3{margin-top:2em}.lesson pre{padding:16px;background:#f1f5f9;overflow:auto}#timeline{display:block;font-size:14px}input[type=number]{width:70px;padding:6px}</style><main><a href="index.html">← 版本目录</a><h1>__TITLE__</h1><p><a href="__SOURCE__">完整 CUDA C++ 源码</a> · <a href="__MD__">Markdown 讲义</a> · <a href="testing.html">测试代码逐行讲解</a></p><div class="intro">__INTRO__</div><section><h2>数据路径与角色</h2>__SVG__<div id="roles"></div><p class="muted">点下面任意源码行，图中高亮它操作的存储/计算环节。同步行请同时观察解释中的依赖关系。</p></section><section><h2>编号实验：任务、K循环、stage和phase一起看</h2><p class="muted">控件使用教学K；输出网格为4096²（v01/v02只有单tile）。不同于下方实测参数。round由ti与worker数推导，修改round会移动到同一worker的对应任务；表格显示该worker前两轮，最多24项。这里不模拟真实耗时或完成先后。</p><label>nk（K64块数） <input id="nk" type="number" min="1" max="16" value="3"></label><label>kt <input id="kt" type="range" min="0" max="2" value="0"><b id="ktLabel"></b></label><button id="next">下一个kt</button><label>输出轮round <input id="round" type="number" min="0" max="6" value="0"></label><label>任务ti <input id="tile" type="range" min="0" max="1023" value="0"></label><label>consumer <select id="consumer"><option value="0">0</option><option value="1">1</option></select></label><label>peer <select id="peer"><option value="0">0</option><option value="1">1</option></select></label><label>输出ei <input id="ei" type="number" min="0" max="3" value="0"></label><div id="buffers"></div><pre id="mapping"></pre><canvas id="tilemap" width="640" height="260" aria-label="输出任务网格"></canvas><div id="tmemmap"></div><div id="timeline" class="lesson"></div></section><section><h2>本版本实测</h2><div id="results"></div></section><section><h2>逐行讲解</h2><div class="code-tools"><input id="query" type="search" placeholder="搜索源码或解释，如 barrier / stage"><span id="count"></span><div id="detail">点击源码行查看解释并定位图示。</div></div><div class="source"><table><tbody id="code"></tbody></table></div></section><section><h2>自查</h2><p>1. 本版谁发起加载？谁等待数据可读？谁通知输入可覆盖？</p><p>2. 写回线程等待的是full[stage]还是acc_full[consumer]？为什么？</p><p>3. 下一轮能否覆盖SMEM和TMEM？分别由哪个完成事件保证？</p><p>答案：前三版加载由128线程完成，MMA完成barrier保护SMEM；TMA版本的full跟踪输入到达，MMA完成/empty跟踪输入消费。WS版writeback等待acc_full，因为它读的是最终TMEM结果；acc_empty保护下一输出的TMEM复用。第9版empty必须收到两位MMA消费者的完成通知。</p></section></main><script id="data" type="application/json">__DATA__</script><script>
 const data=JSON.parse(document.getElementById('data').textContent),$=id=>document.getElementById(id),v=data.version,S=v<=4?1:v<=6?2:v===8?6:4,G=v>=8?2:1,C=v===9?2:1;
 const tags={gmem:'GMEM',smem:'SMEM',mma:'MMA',tmem:'TMEM',rmem:'寄存器',sync:'同步',host:'host / 编译期',schedule:'任务调度'};
 function renderCode(){let q=$('query').value.toLowerCase();$('code').replaceChildren();let count=0;for(const x of data.lines){if(!(x.code+' '+x.note).toLowerCase().includes(q))continue;count++;let tr=document.createElement('tr');tr.id='L'+x.line;for(const val of [x.line,x.code,x.note]){let td=document.createElement('td');td.textContent=val;tr.append(td)}tr.onclick=()=>{document.querySelectorAll('tr.selected').forEach(e=>e.classList.remove('selected'));tr.classList.add('selected');$('detail').textContent='L'+x.line+' · '+tags[x.tag]+'：'+x.note;document.querySelectorAll('g[data-tag]').forEach(g=>g.classList.toggle('active',g.dataset.tag===x.tag));history.replaceState(null,'','#L'+x.line)};$('code').append(tr)}$('count').textContent=' '+count+'行'}
-function draw(){const k=+$('kt').value,c=+$('consumer').value,ti=+$('tile').value;$('ktLabel').textContent=k;$('buffers').replaceChildren();for(let i=0;i<S;i++){let b=document.createElement('div');b.className='buffer'+(i===k%S?' current':'');b.textContent='stage '+i+(i===k%S?' ← 本轮':'');$('buffers').append(b)}let mt=v>=8?4096/(128*G*C):32,nt=v>=8?16:32;let group=Math.floor(ti/(8*nt)),rows=Math.min(8,mt-group*8),local=ti%(8*nt);let bm=v>=6?group*8+local%rows:ti%mt,bn=v>=6?Math.floor(local/rows):Math.floor(ti/mt);if(v<=2){bm=0;bn=0}let row0=(bm*C+c)*128*G;
-$('mapping').textContent='输入 K 区间 ['+(k*64)+', '+((k+1)*64)+')\n'+(v>=5?'stage = '+k+' % '+S+' = '+k%S+'；full phase = floor(k/'+S+') % 2 = '+Math.floor(k/S)%2+'\n':'本版只有一份输入buffer，每次必须等读完再覆盖。\n')+(v>=7?(k<S?'首次使用stage，无需等旧empty。':'复用前等empty phase = '+(Math.floor(k/S)-1)%2)+'\n':'')+'逻辑 tile ('+bm+', '+bn+')，consumer '+c+'\n输出 rows ['+row0+', '+(row0+128*G)+')，columns ['+(bn*128*G)+', '+((bn+1)*128*G)+')'+(v>=8?'\nCTA0取前128行，CTA1取后128行。':'')+'\n本CTA TMEM columns ['+(c*128*G)+', '+((c+1)*128*G)+')';
-$('roles').replaceChildren();let roles=v<7?['128 threads: 协作加载/写回','warp0: MMA']:['WG0: consumer0 写回',...(C===2?['WG1: consumer1 写回']:[]),'WG'+C+' warp3: TMA',...Array.from({length:C},(_,i)=>'WG'+C+' warp'+i+': MMA consumer'+i)];roles.forEach(t=>{let e=document.createElement('div');e.className='role';e.textContent=t;$('roles').append(e)});
-const cv=$('tilemap'),ctx=cv.getContext('2d');ctx.clearRect(0,0,640,260);let nr=v<=2?1:mt,nc=v<=2?1:nt,w=570/nc,h=210/nr;ctx.fillStyle='#334155';ctx.font='13px sans-serif';ctx.fillText('输出tile网格：蓝色共用B，绿色共用A，黄色为当前tile；M向下，N向右',10,18);for(let r=0;r<nr;r++)for(let col=0;col<nc;col++){ctx.fillStyle=r===bm&&col===bn?'#facc15':col===bn?'#93c5fd':r===bm?'#5eead4':'#e2e8f0';ctx.fillRect(35+col*w,35+r*h,w-2,h-2)}
-$('tmemmap').replaceChildren();for(let peer=0;peer<G;peer++){let box=document.createElement('div');box.className='sm';box.textContent='CTA'+peer+' / SM'+peer+' · TMEM 128 lanes';for(let cc=0;cc<C;cc++){let rg=document.createElement('span');rg.className='range'+(cc===c?' chosen':'');rg.textContent='consumer'+cc+' cols ['+cc*128*G+', '+(cc+1)*128*G+')';box.append(rg)}$('tmemmap').append(box)}
-$('timeline').replaceChildren();for(const role of ['逻辑时序','加载 / full','MMA0 / empty',...(v===9?['MMA1 / empty']:[])]){let lab=document.createElement('div');lab.textContent=role;$('timeline').append(lab);for(let t=0;t<18;t++){let e=document.createElement('div');e.className='task';let label=role==='逻辑时序'?String(t):'';for(let i=0;i<(v===1?1:8);i++){let load=v<=4?2*i:i,compute=v<=4?2*i+1:i+1;if(role==='加载 / full'&&t===load)label='K'+i+'→S'+i%S;if(role==='MMA0 / empty'&&t===compute)label='K'+i;if(role==='MMA1 / empty'&&t===compute+1)label='K'+i}if(label.includes('K'+k))e.style.background='#ddd6fe';e.textContent=label;$('timeline').append(e)}}}
-$('consumer').disabled=C===1;$('kt').max=v===1?0:7;$('tile').max=v<=2?0:(4096/(128*G*C))*(4096/(128*G))-1;$('kt').oninput=draw;$('tile').oninput=draw;$('consumer').onchange=draw;$('next').onclick=()=>{$('kt').value=(+$('kt').value+1)%(+$('kt').max+1);draw()};$('query').oninput=renderCode;
+__LAB_JS__
 const r=data.result;$('results').textContent=r?'shape '+[r.m,r.n,r.k].join('×')+'；完整检查 '+r.checked+' 个元素；kernel '+(r.median_ms*1000).toFixed(2)+' μs；cuBLAS '+(r.cublas_ms*1000).toFixed(2)+' μs；cuBLASLt '+(r.cublasLt_ms*1000).toFixed(2)+' μs。条件：同轮 warm replay、CUDA Graph、FP16 I/O / FP32 accumulation。':'最终统一复测正在生成；不要把早期不同计时条件的数值混在一起。';renderCode();draw();
 </script></html>'''
 
 def main():
+ build_lesson_figures()
  (R/'docs').mkdir(exist_ok=True)
  for idx,name in enumerate(NAMES):
   v=min(idx+1,9);title=f'{idx+1:02d} · {TITLES[idx]}' if idx<9 else '09T · '+TITLES[idx]
@@ -221,14 +222,16 @@ def main():
   rp=R/'results/final'/f'{name}.json';result=json.loads(rp.read_text()) if rp.exists() and rp.stat().st_size else None
   svg=diagram(v,title);(R/'docs'/f'{name}.svg').write_text(svg)
   deep_md = '先读：[从一行点积读懂本版：详细图解](01-single-tile-walkthrough.md) · [交互计算图](01-single-tile-walkthrough.html#lab) · [API 与线程编排图册](01-cute-api-atlas.md)\n\n' if idx == 0 else ''
-  md=f'# {title}\n\n源码：[{name}.cu](../kernels/{name}.cu) · [交互逐行讲解]({name}.html)\n\n'+deep_md+INTROS[idx]+'\n\n## 数据路径\n\n!['+title+']('+name+'.svg)\n\n## 编译运行\n\n```bash\n./build.sh '+name+'\n./build/'+name+(' 128 128 64' if v==1 else ' 128 128 4096' if v==2 else ' 4096 4096 4096')+'\n```\n\n## 逐行讲解\n\n每个有效源码行都有对应解释；纯空行不编号说明。类型/参数换行继续属于同一个CuTe表达式。\n\n|行|原始代码|解释|\n|---|---|---|\n'
+  deep = lesson_markdown(name)
+  md=f'# {title}\n\n源码：[{name}.cu](../kernels/{name}.cu) · [交互逐行讲解]({name}.html)\n\n'+deep_md+INTROS[idx]+'\n\n'+deep+'\n\n## 数据路径\n\n!['+title+']('+name+'.svg)\n\n## 编译运行\n\n```bash\n./build.sh '+name+'\n./build/'+name+(' 128 128 64' if v==1 else ' 128 128 4096' if v==2 else ' 4096 4096 4096')+'\n```\n\n## 逐行讲解\n\n每个有效源码行都有对应解释；纯空行不编号说明。类型/参数换行继续属于同一个CuTe表达式。\n\n|行|原始代码|解释|\n|---|---|---|\n'
   for x in ls:md+='|'+str(x['line'])+'|`'+x['code'].strip().replace('|','\\|')+'`|'+x['note'].replace('|','\\|')+'|\n'
   md+='\n## 实测\n\n'+('```json\n'+json.dumps(result,ensure_ascii=False,indent=2)+'\n```' if result else '见 `results/final/`；最终复测结果生成后重建此页。')+'\n\n公共测试程序详见 [测试与基准](testing.md)。\n'
   (R/'docs'/f'{name}.md').write_text(md)
   intro=''.join('<p>'+html.escape(p).replace('\n','<br>')+'</p>' for p in INTROS[idx].split('\n\n'))
   if idx == 0: intro='<p><a href="01-single-tile-walkthrough.html"><b>第一次读不懂？先看从一行点积开始的完整图解 →</b></a> · <a href="01-cute-api-atlas.html">API 与线程编排图册 →</a></p>'+intro
-  data=json.dumps(dict(version=v,lines=ls,result=result),ensure_ascii=False).replace('</','<\\/')
-  page=PAGE.replace('__TITLE__',html.escape(title)).replace('__SOURCE__','../kernels/'+name+'.cu').replace('__MD__',name+'.md').replace('__INTRO__',intro).replace('__SVG__',svg).replace('__DATA__',data)
+  if deep: intro+='<div class="lesson">'+MarkdownIt().enable('table').render(deep)+'</div>'
+  data=json.dumps(dict(version=v,name=name,lines=ls,result=result),ensure_ascii=False).replace('</','<\\/')
+  page=PAGE.replace('__LAB_JS__',(R/'scripts/later_lab.js').read_text()).replace('__TITLE__',html.escape(title)).replace('__SOURCE__','../kernels/'+name+'.cu').replace('__MD__',name+'.md').replace('__INTRO__',intro).replace('__SVG__',svg).replace('__DATA__',data)
   (R/'docs'/f'{name}.html').write_text(page)
  (R/'results/doc-unclassified-lines.txt').write_text('\n'.join(sorted(UNKNOWN)))
  print('pages',len(NAMES),'unclassified',len(UNKNOWN))

@@ -14,12 +14,12 @@
 |行|代码|解释|
 |---|---|---|
 |1|`// 独立诊断基线：CUTLASS 已优化的 collective builder；不是第9步的手写移植。`|说明性注释，不生成机器指令。对应的中文机制解释见本节开头和下面的实际语句。|
-|2|`#include "common.cuh"`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|3|`#include <cutlass/epilogue/collective/collective_builder.hpp>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|4|`#include <cutlass/gemm/collective/collective_builder.hpp>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|5|`#include <cutlass/gemm/device/gemm_universal_adapter.h>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|6|`#include <cutlass/gemm/kernel/gemm_universal.hpp>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|7|`#include <cutlass/util/packed_stride.hpp>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
+|2|`#include "common.cuh"`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|3|`#include <cutlass/epilogue/collective/collective_builder.hpp>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|4|`#include <cutlass/gemm/collective/collective_builder.hpp>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|5|`#include <cutlass/gemm/device/gemm_universal_adapter.h>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|6|`#include <cutlass/gemm/kernel/gemm_universal.hpp>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|7|`#include <cutlass/util/packed_stride.hpp>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
 |8|`using namespace cute;`|建立本项目命名空间，或简写CuTe名字；不改变数据布局或GPU调度。|
 |9|`using RefTile = Shape<_256, _256, _64>;`|定义256×256×64 MMA tile及2×1×1 CTA cluster。|
 |10|`using Cluster = Shape<_2, _1, _1>;`|定义256×256×64 MMA tile及2×1×1 CTA cluster。|
@@ -81,4 +81,4 @@
 |66|`}`|结束当前代码块或类型声明；作用域对应上方最近的函数、循环或条件分支。|
 |67|`}`|结束当前代码块或类型声明；作用域对应上方最近的函数、循环或条件分支。|
 |68|`constexpr int VERSION = 10;`|测试程序用这个编译期版本号检查允许的输入形状，并标记输出JSON。|
-|69|`#include "runner_graph.cuh"`|引入共享C++测试入口：随机输入、CPU/完整cuBLAS参考、cuBLASLt选择与Graph计时。对应独立测试文档有逐行说明。|
+|69|`#include "runner_graph.cuh"`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|

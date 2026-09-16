@@ -22,15 +22,15 @@
 |行|代码|解释|
 |---|---|---|
 |1|`#pragma once`|让这个共享头文件在一个编译单元中只展开一次，避免重复声明。|
-|2|`#include <cstdio>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|3|`#include <cstdlib>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|4|`#include <cuda_runtime.h>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|5|`#include <cute/tensor.hpp>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|6|`#include <cute/algorithm/cooperative_copy.hpp>`|128个线程合作执行普通global load与shared store；CuTe按布局推导分配和可用的向量宽度。这不是TMA。|
-|7|`#include <cute/arch/tmem_allocator_sm100.hpp>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|8|`#include <cutlass/arch/barrier.h>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|9|`#include <cutlass/cluster_launch.hpp>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|10|`#include <cutlass/half.h>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
+|2|`#include <cstdio>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|3|`#include <cstdlib>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|4|`#include <cuda_runtime.h>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|5|`#include <cute/tensor.hpp>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|6|`#include <cute/algorithm/cooperative_copy.hpp>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|7|`#include <cute/arch/tmem_allocator_sm100.hpp>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|8|`#include <cutlass/arch/barrier.h>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|9|`#include <cutlass/cluster_launch.hpp>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|10|`#include <cutlass/half.h>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
 |11|`using H = cutlass::half_t;`|把CUTLASS的half_t命名为H，保证输入输出都是FP16。|
 |12|`#define CUDA_OK(x)                                                             \`|检查每个CUDA/BLAS API的返回值并报告失败位置，避免把错误或没有运行的kernel当作通过。|
 |13|`do {                                                                         \`|错误检查宏的组成部分：求值一次，失败时报文件行号，并用do-while(0)保持语句语义。|
@@ -58,15 +58,15 @@
 |行|代码|解释|
 |---|---|---|
 |1|`#pragma once`|让这个共享头文件在一个编译单元中只展开一次，避免重复声明。|
-|2|`#include "benchmark.cuh"`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|3|`#include <algorithm>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|4|`#include <chrono>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|5|`#include <cmath>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|6|`#include <fstream>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|7|`#include <iomanip>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|8|`#include <iostream>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|9|`#include <random>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|10|`#include <vector>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
+|2|`#include "benchmark.cuh"`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|3|`#include <algorithm>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|4|`#include <chrono>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|5|`#include <cmath>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|6|`#include <fstream>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|7|`#include <iomanip>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|8|`#include <iostream>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|9|`#include <random>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|10|`#include <vector>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
 |11|`// Deterministic CPU double references for every output on small cases;`|说明性注释，不生成机器指令。对应的中文机制解释见本节开头和下面的实际语句。|
 |12|`// stratified plus random checks on large cases. Full cuBLAS checking is added`|说明性注释，不生成机器指令。对应的中文机制解释见本节开头和下面的实际语句。|
 |13|`// in benchmark.cpp.`|说明性注释，不生成机器指令。对应的中文机制解释见本节开头和下面的实际语句。|
@@ -190,12 +190,12 @@
 |行|代码|解释|
 |---|---|---|
 |1|`#pragma once`|让这个共享头文件在一个编译单元中只展开一次，避免重复声明。|
-|2|`#include <algorithm>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|3|`#include <cmath>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|4|`#include <cublasLt.h>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|5|`#include <cublas_v2.h>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|6|`#include <functional>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
-|7|`#include <vector>`|引入CUDA/CuTe、错误检查或C++标准库声明；这不是运行时加载Python包。|
+|2|`#include <algorithm>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|3|`#include <cmath>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|4|`#include <cublasLt.h>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|5|`#include <cublas_v2.h>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|6|`#include <functional>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
+|7|`#include <vector>`|引入CUDA/CuTe或项目公共声明；这里只包含头文件，没有执行数据搬运或计算。|
 |8|`#define BLAS_OK(x)                                                             \`|检查每个CUDA/BLAS API的返回值并报告失败位置，避免把错误或没有运行的kernel当作通过。|
 |9|`do {                                                                         \`|错误检查宏的组成部分：求值一次，失败时报文件行号，并用do-while(0)保持语句语义。|
 |10|`auto bs = (x);                                                             \`|错误检查宏的组成部分：求值一次，失败时报文件行号，并用do-while(0)保持语句语义。|

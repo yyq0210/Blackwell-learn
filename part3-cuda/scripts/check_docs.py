@@ -23,7 +23,7 @@ for p in (R/'docs').glob('*.html'):
   if found!=expected:issues.append(p.name+': line mapping mismatch')
   if not all(x['note'] for x in data['lines']):issues.append(p.name+': empty explanation')
   line_count+=len(found)
- for ptn in ['__TITLE__','__DATA__','__INTRO__','__SVG__']:
+ for ptn in ['__TITLE__','__DATA__','__INTRO__','__SVG__','__LAB_JS__']:
   if ptn in s:issues.append(p.name+': unresolved '+ptn)
 report={'html_pages':pages,'documented_source_lines':line_count,'issues':issues}
 (R/'results/doc-validation.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))

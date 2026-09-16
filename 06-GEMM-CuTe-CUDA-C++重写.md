@@ -41,3 +41,24 @@
 ## 追问：为什么图中 GMEM 标逻辑，而 SMEM 标物理？
 
 原图标签不够准确，已修正：两排都按各自缓冲区的地址递增顺序画。GMEM 与 SMEM 都有逻辑视图和实际存放位置；本版只是 GMEM 的行主序恰好与逻辑 K 次序一致，SMEM 的 swizzle 次序不同。同一逻辑 A[3,18] 对应 GMEM 元素偏移210、SMEM 元素偏移202，不能把两种内存分别等同于“逻辑”和“物理”。解释已补入[原讲义第0.4节](part3-cuda/docs/01-single-tile-walkthrough.md)。
+
+
+## 问：后续版本也画图讲详细，完善所有文档
+
+v02–v09及最终调优版已直接扩充在原有逐行文档中，每版新增一张完整过程图、一张机制放大图，共18张SVG。没有另建一套脱离源码的笔记。
+
+|阅读顺序|重点例子与机制|
+|---|---|
+|[v02 K-loop](part3-cuda/docs/v02_k_loop.md)|K=192，A[3,82]跨三轮K64、十二条MMA累计到同一acc|
+|[v03 多CTA](part3-cuda/docs/v03_multi_cta.md)|2×3输出网格，CTA(1,2)如何计算D[131,261]|
+|[v04 TMA](part3-cuda/docs/v04_tma.md)|descriptor与坐标视图；full/done各等什么；两次ei写回|
+|[v05 双缓冲](part3-cuda/docs/v05_double_buffer.md)|逐轮画清预取哪个stage、覆盖的依据和full/done phase差别|
+|[v06 持久化](part3-cuda/docs/v06_persistent.md)|ti0→ti148；grouped-M尾组；奇数nk跨输出的phase|
+|[v07 Warp specialization](part3-cuda/docs/v07_warp_specialized.md)|256线程分工，SMEM与TMEM两套交接协议|
+|[v08 双CTA](part3-cuda/docs/v08_two_cta.md)|两侧A/B共同产生完整256列；D[3,133]跨侧输入|
+|[v09 多消费者](part3-cuda/docs/v09_multi_consumer.md)|D[387,133]对应consumer1/peer1/thread131，共享B的count=2|
+|[v09调优](part3-cuda/docs/v09_tuned.md)|1x与32x的atom覆盖和寄存器fragment；每线程总数据量不变|
+
+每版HTML中的编号实验可以改变nk、kt、输出轮、任务编号、consumer、peer与ei，联动显示stage、phase、全局行列和TMEM slot。图示表达依赖与编号，不模拟硬件时钟。
+
+单/双CTA布局、窄/宽TMEM copy分片已通过B300单线程CuTe坐标诊断；网页源码行号与链接也做了校验。kernel源码保持原样，已有性能数字沿用原实测。

@@ -1,0 +1,11 @@
+G=1 peer=0 pa shape=((_128,_16),_1,_4,_3) pb shape=((_128,_16),_1,_4,_3) pd shape=((_128,_128),_1,_1)
+A first=(128,0) B first=(128,0) D first=(128,128)
+thread3 narrow regs shape=((_1,_1),(_64)) wide regs shape=((_32,_1),(_2)) SMEM dst narrow=((_1,_1),(_64)) wide=((_32,_1),(_2)) first=(131,128) last=(131,191)
+G=1 layout checks errors=0
+G=2 peer=0 pa shape=((_128,_16),_1,_4,_3) pb shape=((_128,_16),_1,_4,_3) pd shape=((_128,_256),_1,_1)
+A first=(256,0) B first=(256,0) D first=(256,256)
+thread3 narrow regs shape=((_1,_1),(_64)) wide regs shape=((_32,_1),(_2)) SMEM dst narrow=((_1,_1),(_64)) wide=((_32,_1),(_2)) first=(259,256) last=(259,319)
+G=2 peer=1 pa shape=((_128,_16),_1,_4,_3) pb shape=((_128,_16),_1,_4,_3) pd shape=((_128,_256),_1,_1)
+A first=(384,0) B first=(384,0) D first=(384,256)
+thread3 narrow regs shape=((_1,_1),(_64)) wide regs shape=((_32,_1),(_2)) SMEM dst narrow=((_1,_1),(_64)) wide=((_32,_1),(_2)) first=(387,256) last=(387,319)
+G=2 layout checks errors=0
